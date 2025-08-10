@@ -12,7 +12,7 @@ class AudioService {
   private _isRunning = false;
   private _environmentLoaded = false;
   private _creaturesLoaded = false;
-  
+
   // Parameter storage for real-time control
   private _parameters = {
     agentCount: 16,
@@ -170,16 +170,16 @@ class AudioService {
   setParameter(param: string, value: number): void {
     if (param in this._parameters) {
       (this._parameters as any)[param] = value;
-      
+
       // Apply parameter changes to running services
       switch (param) {
-        case 'ambienceLevel':
+        case "ambienceLevel":
           environmentService.setMasterGain(value);
           break;
-        case 'couplingStrength':
+        case "couplingStrength":
           // TODO: Send to worker via message
           break;
-        case 'tempoBias':
+        case "tempoBias":
           // TODO: Send to worker via message
           break;
         // agentCount and tonicMidi require restart

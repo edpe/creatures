@@ -39,8 +39,16 @@ interface NoteBatch {
 }
 
 interface WorkerMessage {
-  type: "start" | "stop" | "update" | "phase" | "notes";
+  type:
+    | "start"
+    | "stop"
+    | "update"
+    | "phase"
+    | "notes"
+    | "requestAudioTime"
+    | "audioTime";
   data?: Omit<EnvironmentParameters, "masterGain"> | PhaseSnapshot | NoteBatch;
+  audioTime?: number; // For audioTime messages
 }
 
 class EnvironmentService {
@@ -53,7 +61,7 @@ class EnvironmentService {
 
   // Look-ahead time for parameter scheduling (100ms as specified)
   private readonly LOOK_AHEAD_TIME = 0.1;
-  
+
   // Timing constants for scheduling
   public static readonly LOOKAHEAD_MS = 100;
   public static readonly DISPATCH_MS = 50;
@@ -91,7 +99,7 @@ class EnvironmentService {
 
       // Create a gain node for additional volume control
       this.gainNode = audioContext.createGain();
-      this.gainNode.gain.value = 1.0;
+      this.gainNode.gain.value = 0.3; // Reduce environment volume to hear agents better
 
       // Connect the worklet to the gain node
       this.workletNode.connect(this.gainNode);
@@ -149,6 +157,14 @@ class EnvironmentService {
       // Note batch from agent beat crossings
       const noteBatch = message.data as NoteBatch;
       this.forwardNotesToCreatures(noteBatch);
+    } else if (message.type === "requestAudioTime") {
+      // Worker is requesting current audio context time
+      if (this.audioContext) {
+        this.simWorker?.postMessage({
+          type: "audioTime",
+          audioTime: this.audioContext.currentTime,
+        });
+      }
     }
   }
 
@@ -371,11 +387,14 @@ class EnvironmentService {
 
     // Clamp to leave ~12 dB headroom (0.25 = -12dB)
     const clampedGain = Math.max(0, Math.min(0.25, gain * 0.25));
-    
+
     // Apply soft-clipping curve for gentle limiting
     const softClipped = Math.tanh(clampedGain * 2) * 0.5;
-    
-    this.gainNode.gain.setValueAtTime(softClipped, this.audioContext?.currentTime || 0);
+
+    this.gainNode.gain.setValueAtTime(
+      softClipped,
+      this.audioContext?.currentTime || 0
+    );
   }
 
   /**

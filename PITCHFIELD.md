@@ -20,10 +20,10 @@ Successfully implemented a **PitchField** system that maps Kuramoto agents to mu
 - **Random Walk**: ±0.5 octave variation for natural pitch drift
 
 ### ⏱️ Beat Detection & Timing
-- **Beat Crossing**: Detects when agents cross phase boundaries (0, π/2, π, 3π/2)
-- **Probabilistic Emission**: Energy-based probability (max 60% chance per beat)
+- **Beat Crossing**: Detects when agents cross major phase boundaries (0, π) - reduced from 4 to 2 beats per cycle
+- **Contemplative Emission**: Energy-based probability (max 8% chance per beat, with occasional 20% "chatty" moods)
 - **Look-ahead Scheduling**: 100ms advance scheduling for tight timing
-- **Duration Range**: 0.3-1.6 seconds for natural phrase breathing
+- **Duration Range**: 0.8-3.2 seconds for contemplative, longer phrases
 
 ### 🔄 Integration Flow
 1. **Worker**: Kuramoto simulator updates agent phases every 50ms
@@ -63,16 +63,17 @@ interface KuramotoAgent {
 ## Audio Characteristics
 
 ### 🎼 Musical Qualities
-- **Gentle Dynamics**: Max 40% amplitude for soft texture
+- **Whisper-like Dynamics**: Max 12% amplitude for intimate, contemplative texture
 - **Pentatonic Harmony**: Natural consonance without dissonance
-- **Polyrhythmic Structure**: 16 independent agent rhythms
-- **Organic Timing**: Probabilistic emission creates natural variation
+- **Sparse Polyrhythms**: 16 independent agents speaking only when they choose to
+- **Contemplative Timing**: Agents decide when to "speak" based on personality and mood
 
 ### 🔊 Technical Specs
 - **Frequency Range**: ~165Hz (A3-1oct) to ~880Hz (A5+1oct)
-- **Timbre Variation**: 0.3-0.7 FM ratio range for tonal variation
+- **Timbre Variation**: 0.1-0.4 FM ratio range for soft, mellow tones
 - **Polyphony**: Up to 32 simultaneous voices via CreatureProcessor
 - **Latency**: 100ms look-ahead maintains tight timing
+- **Agent Personality**: 0.1-0.4 energy range for contemplative behavior
 
 ## Test Coverage
 

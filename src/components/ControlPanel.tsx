@@ -2,10 +2,10 @@
  * Control Panel Component
  * Minimal controls for PitchField parameters and audio system
  */
-import React, { useState, useEffect, useCallback } from 'react';
-import { audioService } from '../audio/ctx';
-import { environmentService } from '../audio/env';
-import './ControlPanel.css';
+import React, { useState, useEffect, useCallback } from "react";
+import { audioService } from "../audio/ctx";
+import { environmentService } from "../audio/env";
+import "./ControlPanel.css";
 
 interface ControlPanelProps {
   onParameterChange?: (param: string, value: number) => void;
@@ -16,11 +16,16 @@ interface AudioLoad {
   cpuLoad: number; // 0-1 estimate
 }
 
-export const ControlPanel: React.FC<ControlPanelProps> = ({ onParameterChange }) => {
+export const ControlPanel: React.FC<ControlPanelProps> = ({
+  onParameterChange,
+}) => {
   // Audio state
   const [isRunning, setIsRunning] = useState(false);
-  const [audioLoad, setAudioLoad] = useState<AudioLoad>({ activeVoices: 0, cpuLoad: 0 });
-  
+  const [audioLoad, setAudioLoad] = useState<AudioLoad>({
+    activeVoices: 0,
+    cpuLoad: 0,
+  });
+
   // Control parameters
   const [agentCount, setAgentCount] = useState(16);
   const [ambienceLevel, setAmbienceLevel] = useState(0.7);
@@ -31,14 +36,14 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({ onParameterChange })
   // Audio load monitoring
   useEffect(() => {
     let loadInterval: number;
-    
+
     if (isRunning) {
       loadInterval = setInterval(() => {
         // Simple heuristic: estimate load from current voices and context state
         const voices = Math.floor(Math.random() * 8) + 2; // Mock for now
         const cpu = Math.min(voices / 32, 1.0); // Normalize to max 32 voices
-        
-        setAudioLoad(prev => ({
+
+        setAudioLoad((prev) => ({
           activeVoices: Math.round(prev.activeVoices * 0.8 + voices * 0.2), // Moving average
           cpuLoad: prev.cpuLoad * 0.9 + cpu * 0.1,
         }));
@@ -63,8 +68,8 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({ onParameterChange })
         setAudioLoad({ activeVoices: 0, cpuLoad: 0 });
       }
     } catch (error) {
-      console.error('Failed to start/stop audio:', error);
-      alert('Failed to start audio. Please try again.');
+      console.error("Failed to start/stop audio:", error);
+      alert("Failed to start audio. Please try again.");
     }
   }, [isRunning]);
 
@@ -73,7 +78,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({ onParameterChange })
     if (isRunning) {
       await audioService.stop();
     }
-    
+
     // Reset all parameters to defaults
     setAgentCount(16);
     setAmbienceLevel(0.7);
@@ -82,49 +87,77 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({ onParameterChange })
     setCouplingStrength(0.15);
     setIsRunning(false);
     setAudioLoad({ activeVoices: 0, cpuLoad: 0 });
-    
+
     // Notify parent of parameter changes
-    onParameterChange?.('agentCount', 16);
-    onParameterChange?.('ambienceLevel', 0.7);
-    onParameterChange?.('tonicMidi', 57);
-    onParameterChange?.('tempoBias', 1.0);
-    onParameterChange?.('couplingStrength', 0.15);
+    onParameterChange?.("agentCount", 16);
+    onParameterChange?.("ambienceLevel", 0.7);
+    onParameterChange?.("tonicMidi", 57);
+    onParameterChange?.("tempoBias", 1.0);
+    onParameterChange?.("couplingStrength", 0.15);
   }, [isRunning, onParameterChange]);
 
   // Parameter change handlers
-  const handleAgentCountChange = useCallback((value: number) => {
-    setAgentCount(value);
-    onParameterChange?.('agentCount', value);
-  }, [onParameterChange]);
+  const handleAgentCountChange = useCallback(
+    (value: number) => {
+      setAgentCount(value);
+      onParameterChange?.("agentCount", value);
+    },
+    [onParameterChange]
+  );
 
-  const handleAmbienceLevelChange = useCallback((value: number) => {
-    setAmbienceLevel(value);
-    onParameterChange?.('ambienceLevel', value);
-    
-    // Update environment gain immediately if running
-    if (isRunning && environmentService) {
-      environmentService.setMasterGain(value);
-    }
-  }, [isRunning, onParameterChange]);
+  const handleAmbienceLevelChange = useCallback(
+    (value: number) => {
+      setAmbienceLevel(value);
+      onParameterChange?.("ambienceLevel", value);
 
-  const handleTonicMidiChange = useCallback((value: number) => {
-    setTonicMidi(value);
-    onParameterChange?.('tonicMidi', value);
-  }, [onParameterChange]);
+      // Update environment gain immediately if running
+      if (isRunning && environmentService) {
+        environmentService.setMasterGain(value);
+      }
+    },
+    [isRunning, onParameterChange]
+  );
 
-  const handleTempoBiasChange = useCallback((value: number) => {
-    setTempoBias(value);
-    onParameterChange?.('tempoBias', value);
-  }, [onParameterChange]);
+  const handleTonicMidiChange = useCallback(
+    (value: number) => {
+      setTonicMidi(value);
+      onParameterChange?.("tonicMidi", value);
+    },
+    [onParameterChange]
+  );
 
-  const handleCouplingStrengthChange = useCallback((value: number) => {
-    setCouplingStrength(value);
-    onParameterChange?.('couplingStrength', value);
-  }, [onParameterChange]);
+  const handleTempoBiasChange = useCallback(
+    (value: number) => {
+      setTempoBias(value);
+      onParameterChange?.("tempoBias", value);
+    },
+    [onParameterChange]
+  );
+
+  const handleCouplingStrengthChange = useCallback(
+    (value: number) => {
+      setCouplingStrength(value);
+      onParameterChange?.("couplingStrength", value);
+    },
+    [onParameterChange]
+  );
 
   // Convert MIDI to note name for display
   const midiToNoteName = (midi: number): string => {
-    const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+    const notes = [
+      "C",
+      "C#",
+      "D",
+      "D#",
+      "E",
+      "F",
+      "F#",
+      "G",
+      "G#",
+      "A",
+      "A#",
+      "B",
+    ];
     const octave = Math.floor(midi / 12) - 1;
     const note = notes[midi % 12];
     return `${note}${octave}`;
@@ -135,8 +168,10 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({ onParameterChange })
       <div className="control-header">
         <h3>🎵 Creatures Audio</h3>
         <div className="audio-status">
-          <div className={`status-indicator ${isRunning ? 'running' : 'stopped'}`} />
-          <span>{isRunning ? 'Running' : 'Stopped'}</span>
+          <div
+            className={`status-indicator ${isRunning ? "running" : "stopped"}`}
+          />
+          <span>{isRunning ? "Running" : "Stopped"}</span>
         </div>
       </div>
 
@@ -149,12 +184,14 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({ onParameterChange })
         <div className="load-item">
           <span>CPU:</span>
           <div className="load-bar">
-            <div 
-              className="load-fill" 
+            <div
+              className="load-fill"
               style={{ width: `${audioLoad.cpuLoad * 100}%` }}
             />
           </div>
-          <span className="load-value">{Math.round(audioLoad.cpuLoad * 100)}%</span>
+          <span className="load-value">
+            {Math.round(audioLoad.cpuLoad * 100)}%
+          </span>
         </div>
       </div>
 
@@ -218,25 +255,36 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({ onParameterChange })
             max="0.5"
             step="0.001"
             value={couplingStrength}
-            onChange={(e) => handleCouplingStrengthChange(Number(e.target.value))}
+            onChange={(e) =>
+              handleCouplingStrengthChange(Number(e.target.value))
+            }
           />
         </div>
       </div>
 
       {/* Action Buttons */}
       <div className="action-buttons">
-        <button 
-          className={`primary-button ${isRunning ? 'stop' : 'start'}`}
+        <button
+          className={`primary-button ${isRunning ? "stop" : "start"}`}
           onClick={handleStartStop}
         >
-          {isRunning ? '⏹ Stop' : '▶ Start'}
+          {isRunning ? "⏹ Stop" : "▶ Start"}
         </button>
-        
-        <button 
-          className="secondary-button"
-          onClick={handleReset}
-        >
+
+        <button className="secondary-button" onClick={handleReset}>
           🔄 Reset
+        </button>
+
+        <button
+          className="secondary-button"
+          onClick={() => {
+            // Import and test a note
+            import("../audio/creatures").then(({ creaturesService }) => {
+              creaturesService.testNote();
+            });
+          }}
+        >
+          🎵 Test Note
         </button>
       </div>
 

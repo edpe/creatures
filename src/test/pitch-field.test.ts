@@ -87,9 +87,9 @@ describe("PitchField Concepts", () => {
   describe("Note Event Generation", () => {
     it("should create valid note events with gentle amplitude", () => {
       const createMockNote = (energy: number) => {
-        const amplitude = energy * 0.4; // Max 40% for gentle sound
-        const duration = 0.3 + Math.random() * 1.3; // 0.3-1.6 seconds
-        const timbre = 0.3 + Math.random() * 0.4; // 0.3-0.7 range
+        const amplitude = energy * 0.12; // Max 12% for whisper-like sound (updated)
+        const duration = 0.8 + Math.random() * 2.4; // 0.8-3.2 seconds (updated)
+        const timbre = 0.1 + Math.random() * 0.3; // 0.1-0.4 range (updated)
 
         return {
           amp: amplitude,
@@ -101,31 +101,31 @@ describe("PitchField Concepts", () => {
       const note1 = createMockNote(0.5);
       const note2 = createMockNote(1.0);
 
-      // Amplitude should be gentle (max 40%)
-      expect(note1.amp).toBeLessThanOrEqual(0.4);
-      expect(note2.amp).toBeLessThanOrEqual(0.4);
+      // Amplitude should be whisper-like (max 12%)
+      expect(note1.amp).toBeLessThanOrEqual(0.12);
+      expect(note2.amp).toBeLessThanOrEqual(0.12);
 
-      // Duration should be in valid range
-      expect(note1.dur).toBeGreaterThanOrEqual(0.3);
-      expect(note1.dur).toBeLessThanOrEqual(1.6);
+      // Duration should be contemplative range
+      expect(note1.dur).toBeGreaterThanOrEqual(0.8);
+      expect(note1.dur).toBeLessThanOrEqual(3.2);
 
-      // Timbre should be in valid range
-      expect(note1.timbre).toBeGreaterThanOrEqual(0.3);
-      expect(note1.timbre).toBeLessThanOrEqual(0.7);
+      // Timbre should be soft and mellow
+      expect(note1.timbre).toBeGreaterThanOrEqual(0.1);
+      expect(note1.timbre).toBeLessThanOrEqual(0.4);
     });
 
     it("should use probabilistic note emission based on energy", () => {
       const shouldEmitNote = (energy: number) => {
-        const probability = energy * 0.6; // Max 60% chance per beat
-        return { probability, maxChance: 0.6 };
+        const probability = energy * 0.08; // Max 8% chance per beat (much lower!)
+        return { probability, maxChance: 0.2 }; // Max 20% even when chatty
       };
 
       const lowEnergy = shouldEmitNote(0.2);
       const highEnergy = shouldEmitNote(1.0);
 
-      expect(lowEnergy.probability).toBe(0.12); // 12% chance
-      expect(highEnergy.probability).toBe(0.6); // 60% chance max
-      expect(highEnergy.maxChance).toBe(0.6);
+      expect(lowEnergy.probability).toBeCloseTo(0.016, 3); // 1.6% chance (updated)
+      expect(highEnergy.probability).toBeCloseTo(0.08, 3); // 8% chance max (updated)
+      expect(highEnergy.maxChance).toBe(0.2); // 20% max (updated)
     });
   });
 
@@ -141,7 +141,7 @@ describe("PitchField Concepts", () => {
         id: 0,
         beatPhase: Math.PI / 4,
         size: 0.5,
-        energy: 0.7,
+        energy: 0.25, // Updated to reflect new contemplative range (0.1-0.4)
         lastBeatPhase: 0,
       };
 

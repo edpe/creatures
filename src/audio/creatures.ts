@@ -123,6 +123,27 @@ class CreaturesService {
   }
 
   /**
+   * Test method: play a single note immediately for debugging
+   */
+  testNote(): void {
+    if (!this.audioContext) {
+      console.warn("Cannot test note: audio context not available");
+      return;
+    }
+
+    const currentTime = this.audioContext.currentTime;
+    console.log(`Testing note at audio time: ${currentTime}`);
+
+    this.playNote(
+      currentTime + 0.1, // Start in 100ms
+      440, // A4
+      2.0, // 2 second duration
+      0.5, // Medium amplitude
+      0.3 // Medium timbre (sine wave)
+    );
+  }
+
+  /**
    * Check if the service is loaded and ready
    */
   get loaded(): boolean {

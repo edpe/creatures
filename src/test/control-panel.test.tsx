@@ -29,7 +29,20 @@ describe("ControlPanel Functionality", () => {
   describe("Parameter Mapping", () => {
     it("should correctly map MIDI numbers to note names", () => {
       const midiToNoteName = (midi: number): string => {
-        const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+        const notes = [
+          "C",
+          "C#",
+          "D",
+          "D#",
+          "E",
+          "F",
+          "F#",
+          "G",
+          "G#",
+          "A",
+          "A#",
+          "B",
+        ];
         const octave = Math.floor(midi / 12) - 1;
         const note = notes[midi % 12];
         return `${note}${octave}`;
@@ -47,7 +60,8 @@ describe("ControlPanel Functionality", () => {
       const validateAmbienceLevel = (level: number) => level >= 0 && level <= 1;
       const validateTonicMidi = (midi: number) => midi >= 48 && midi <= 72;
       const validateTempoBias = (tempo: number) => tempo >= 0.5 && tempo <= 2.0;
-      const validateCouplingStrength = (coupling: number) => coupling >= 0 && coupling <= 0.5;
+      const validateCouplingStrength = (coupling: number) =>
+        coupling >= 0 && coupling <= 0.5;
 
       // Valid ranges
       expect(validateAgentCount(16)).toBe(true);
@@ -68,7 +82,10 @@ describe("ControlPanel Functionality", () => {
 
   describe("Audio Load Calculation", () => {
     it("should calculate CPU load correctly", () => {
-      const calculateCpuLoad = (activeVoices: number, maxVoices: number = 32) => {
+      const calculateCpuLoad = (
+        activeVoices: number,
+        maxVoices: number = 32
+      ) => {
         return Math.min(activeVoices / maxVoices, 1.0);
       };
 
@@ -79,7 +96,11 @@ describe("ControlPanel Functionality", () => {
     });
 
     it("should implement moving average for load smoothing", () => {
-      const applyMovingAverage = (current: number, new_value: number, alpha: number = 0.2) => {
+      const applyMovingAverage = (
+        current: number,
+        new_value: number,
+        alpha: number = 0.2
+      ) => {
         return current * (1 - alpha) + new_value * alpha;
       };
 
@@ -113,7 +134,7 @@ describe("ControlPanel Functionality", () => {
 
       const softClipped1 = applySoftClipping(1.0);
       const softClipped2 = applySoftClipping(0.5);
-      
+
       expect(softClipped1).toBeGreaterThan(0);
       expect(softClipped1).toBeLessThan(0.5);
       expect(softClipped2).toBeLessThan(softClipped1);
@@ -145,27 +166,27 @@ describe("ControlPanel Functionality", () => {
     it("should validate AudioContext state transitions", () => {
       const validateStateTransition = (fromState: string, toState: string) => {
         const validTransitions: Record<string, string[]> = {
-          'suspended': ['running', 'closed'],
-          'running': ['suspended', 'closed'],
-          'closed': [] // No transitions from closed state
+          suspended: ["running", "closed"],
+          running: ["suspended", "closed"],
+          closed: [], // No transitions from closed state
         };
-        
+
         return validTransitions[fromState]?.includes(toState) || false;
       };
 
-      expect(validateStateTransition('suspended', 'running')).toBe(true);
-      expect(validateStateTransition('running', 'suspended')).toBe(true);
-      expect(validateStateTransition('closed', 'running')).toBe(false);
+      expect(validateStateTransition("suspended", "running")).toBe(true);
+      expect(validateStateTransition("running", "suspended")).toBe(true);
+      expect(validateStateTransition("closed", "running")).toBe(false);
     });
 
     it("should handle user gesture requirements", () => {
       const requiresUserGesture = (contextState: string) => {
-        return contextState === 'suspended';
+        return contextState === "suspended";
       };
 
-      expect(requiresUserGesture('suspended')).toBe(true);
-      expect(requiresUserGesture('running')).toBe(false);
-      expect(requiresUserGesture('closed')).toBe(false);
+      expect(requiresUserGesture("suspended")).toBe(true);
+      expect(requiresUserGesture("running")).toBe(false);
+      expect(requiresUserGesture("closed")).toBe(false);
     });
   });
 
@@ -173,23 +194,18 @@ describe("ControlPanel Functionality", () => {
     it("should have minimal component dependencies", () => {
       // Test that we're not importing unnecessary dependencies
       const controlPanelDeps = [
-        'react',
-        'audio/ctx',
-        'audio/env',
-        'ControlPanel.css'
+        "react",
+        "audio/ctx",
+        "audio/env",
+        "ControlPanel.css",
       ];
 
       // Should not include heavy dependencies
-      const heavyDeps = [
-        'lodash',
-        'moment',
-        'three.js',
-        'chart.js'
-      ];
+      const heavyDeps = ["lodash", "moment", "three.js", "chart.js"];
 
       // This is more of a documentation test - in real scenario you'd analyze bundle
       expect(controlPanelDeps.length).toBeLessThan(10);
-      expect(heavyDeps).not.toContain('react'); // Ensure we're not accidentally including heavy deps
+      expect(heavyDeps).not.toContain("react"); // Ensure we're not accidentally including heavy deps
     });
   });
 });

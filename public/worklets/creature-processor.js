@@ -14,27 +14,28 @@ class Voice {
     this.id = id;
     this.state = VOICE_IDLE;
     
-    // Oscillator state for 2-op FM
-    this.carrierPhase = 0;
-    this.modulatorPhase = 0;
+    // Pure oscillator state
+    this.phase = 0;
     this.freq = 440;
-    this.modRatio = 1.5; // Modulator frequency ratio
-    this.modDepth = 0;   // FM modulation depth
+    this.waveType = 'sine'; // 'sine', 'square', 'saw'
     
-    // Envelope state
+    // Multi-stage envelope state (ADSR)
     this.envLevel = 0;
-    this.envTarget = 0;
-    this.envRate = 0;
-    this.sustainLevel = 0.6;
+    this.envStage = 'idle'; // 'attack', 'decay', 'sustain', 'release'
+    this.attackTime = 0.02;  // Very soft attack (20ms)
+    this.decayTime = 0.1;    // Gentle decay (100ms)
+    this.sustainLevel = 0.4; // Lower sustain level
+    this.releaseTime = 1.5;  // Long, smooth release
+    this.envTimer = 0;
     
     // Note parameters
     this.amp = 0;
-    this.timbre = 0.5; // Controls modulation depth and filter
-    this.releaseTime = 0;
+    this.timbre = 0.5; // Controls wave type selection
+    this.noteDuration = 0;
     
-    // One-pole filter state
+    // Soft lowpass filter state
     this.filterState = 0;
-    this.filterCutoff = 0.1;
+    this.filterCutoff = 0.05; // Much darker filter
     
     // Timing
     this.startFrame = 0;
@@ -44,108 +45,142 @@ class Voice {
   noteOn(startFrame, freq, dur, amp, timbre) {
     this.state = VOICE_ATTACK;
     this.freq = freq;
-    this.amp = amp;
+    this.amp = amp * 2.0; // Increase volume significantly for debugging
     this.timbre = Math.max(0, Math.min(1, timbre));
     this.startFrame = startFrame;
     this.endFrame = startFrame + dur;
+    this.noteDuration = dur;
     
-    // Set envelope parameters based on timbre
-    this.modDepth = this.timbre * 0.8; // Reduced modulation depth for softer sound
-    this.filterCutoff = 0.08 + this.timbre * 0.2; // Darker filter for warmth
+    // Select wave type based on timbre
+    if (this.timbre < 0.33) {
+      this.waveType = 'sine';    // Pure, soft sine waves
+    } else if (this.timbre < 0.67) {
+      this.waveType = 'square';  // Soft square waves
+    } else {
+      this.waveType = 'saw';     // Gentle saw waves
+    }
     
-    // Gentler attack
-    this.envTarget = this.sustainLevel;
-    this.envRate = 0.005; // Slower attack rate for softer onset
+    // Very dark filter for all wave types
+    this.filterCutoff = 0.02 + this.timbre * 0.03; // Much darker range
+    
+    // Start gentle ADSR envelope
+    this.envLevel = 0;
+    this.envStage = 'attack';
+    this.envTimer = 0;
   }
 
   noteOff() {
     if (this.state === VOICE_IDLE) return;
     
     this.state = VOICE_RELEASE;
-    this.envTarget = 0;
-    this.envRate = 0.001; // Slower release rate for smoother fade
+    this.envStage = 'release';
+    this.envTimer = 0;
   }
 
   process(currentFrame, sampleRate) {
     if (this.state === VOICE_IDLE) return 0;
     
-    // Check if note should end
-    if (currentFrame >= this.endFrame && this.state !== VOICE_RELEASE) {
+    // Check if note should end (but allow release to finish naturally)
+    if (currentFrame >= this.endFrame && this.envStage !== 'release') {
       this.noteOff();
     }
     
-    // Update envelope
-    this.updateEnvelope();
+    // Update ADSR envelope
+    this.updateEnvelope(sampleRate);
     
     // Generate audio if envelope is active
     if (this.envLevel <= 0.001) {
-      if (this.state === VOICE_RELEASE) {
+      if (this.envStage === 'release') {
         this.state = VOICE_IDLE;
+        this.envStage = 'idle';
       }
       return 0;
     }
     
-    // 2-op FM synthesis
+    // Generate pure waveform
     const sample = this.generateSample(sampleRate);
     
     // Apply envelope and amplitude
     return sample * this.envLevel * this.amp;
   }
 
-  updateEnvelope() {
-    // Simple linear envelope
-    if (this.envLevel < this.envTarget) {
-      this.envLevel += this.envRate;
-      if (this.envLevel >= this.envTarget) {
-        this.envLevel = this.envTarget;
-        if (this.state === VOICE_ATTACK) {
-          this.state = VOICE_SUSTAIN;
+  updateEnvelope(sampleRate) {
+    const dt = 1.0 / sampleRate;
+    this.envTimer += dt;
+    
+    switch (this.envStage) {
+      case 'attack':
+        // Exponential attack for very smooth onset
+        this.envLevel = 1.0 - Math.exp(-this.envTimer / (this.attackTime * 0.3));
+        if (this.envTimer >= this.attackTime) {
+          this.envStage = 'decay';
+          this.envTimer = 0;
         }
-      }
-    } else if (this.envLevel > this.envTarget) {
-      this.envLevel -= this.envRate;
-      if (this.envLevel <= this.envTarget) {
-        this.envLevel = this.envTarget;
-      }
+        break;
+        
+      case 'decay':
+        // Smooth decay to sustain level
+        const decayProgress = this.envTimer / this.decayTime;
+        this.envLevel = this.sustainLevel + (1.0 - this.sustainLevel) * Math.exp(-decayProgress * 3);
+        if (this.envTimer >= this.decayTime) {
+          this.envStage = 'sustain';
+          this.envLevel = this.sustainLevel;
+        }
+        break;
+        
+      case 'sustain':
+        // Hold at sustain level
+        this.envLevel = this.sustainLevel;
+        break;
+        
+      case 'release':
+        // Very smooth exponential release
+        this.envLevel = this.sustainLevel * Math.exp(-this.envTimer / (this.releaseTime * 0.5));
+        if (this.envLevel <= 0.001) {
+          this.envLevel = 0;
+          this.envStage = 'idle';
+        }
+        break;
     }
   }
 
   generateSample(sampleRate) {
-    // Update oscillator phases
-    const carrierIncrement = (this.freq * 2 * Math.PI) / sampleRate;
-    const modulatorIncrement = (this.freq * this.modRatio * 2 * Math.PI) / sampleRate;
+    // Update oscillator phase
+    const phaseIncrement = (this.freq * 2 * Math.PI) / sampleRate;
+    this.phase += phaseIncrement;
+    if (this.phase > 2 * Math.PI) this.phase -= 2 * Math.PI;
     
-    this.modulatorPhase += modulatorIncrement;
-    if (this.modulatorPhase > 2 * Math.PI) this.modulatorPhase -= 2 * Math.PI;
+    let sample;
     
-    // FM modulation
-    const modulator = Math.sin(this.modulatorPhase);
-    const modulation = modulator * this.modDepth;
-    
-    this.carrierPhase += carrierIncrement + modulation;
-    if (this.carrierPhase > 2 * Math.PI) this.carrierPhase -= 2 * Math.PI;
-    
-    // Generate carrier with gentle harmonic content
-    let carrier;
-    if (this.timbre < 0.3) {
-      // Pure sine wave for gentle sound
-      carrier = Math.sin(this.carrierPhase);
-    } else if (this.timbre < 0.7) {
-      // Soft blend between sine and triangle
-      const sine = Math.sin(this.carrierPhase);
-      const t = this.carrierPhase / (2 * Math.PI);
-      const triangle = t < 0.5 ? (4 * t - 1) : (3 - 4 * t);
-      const blend = (this.timbre - 0.3) / 0.4; // 0-1 range
-      carrier = sine * (1 - blend * 0.3) + triangle * blend * 0.2;
-    } else {
-      // Soft triangle with reduced harmonics
-      const t = this.carrierPhase / (2 * Math.PI);
-      carrier = t < 0.5 ? (4 * t - 1) : (3 - 4 * t);
-      carrier *= 0.4; // Much gentler level
+    switch (this.waveType) {
+      case 'sine':
+        // Pure sine wave - softest possible sound
+        sample = Math.sin(this.phase);
+        break;
+        
+      case 'square':
+        // Soft square wave with rounded edges
+        const squareBase = this.phase < Math.PI ? 1 : -1;
+        // Apply gentle lowpass to remove harshness
+        sample = squareBase * 0.6;
+        break;
+        
+      case 'saw':
+        // Gentle sawtooth with reduced harmonics
+        const t = this.phase / (2 * Math.PI);
+        sample = (2 * t - 1) * 0.5; // Much gentler level
+        break;
+        
+      default:
+        sample = Math.sin(this.phase);
     }
     
-    // Apply one-pole lowpass filter
-    this.filterState += (carrier - this.filterState) * this.filterCutoff;
+    // Apply multi-stage lowpass filtering for extra smoothness
+    this.filterState += (sample - this.filterState) * this.filterCutoff;
+    const filtered = this.filterState;
+    
+    // Second stage of filtering for ultra-smooth sound
+    this.filterState += (filtered - this.filterState) * this.filterCutoff * 0.5;
     
     return this.filterState;
   }
@@ -171,12 +206,60 @@ class CreatureProcessor extends AudioWorkletProcessor {
     // Note event queue
     this.noteEvents = [];
     
+    // Frame counter for timing
+    this.currentFrame = 0;
+    
+    // Reverb state (simple comb filter + allpass)
+    this.reverbDelayLines = [];
+    this.reverbAllpass = [];
+    this.initializeReverb();
+    
+    // Delay effect state
+    this.delayBuffer = new Float32Array(Math.round(48000 * 0.25)); // 250ms max delay
+    this.delayBuffer.fill(0); // Initialize to silence
+    this.delayWritePos = 0;
+    this.delayTime = 0.15; // 150ms delay
+    this.delayFeedback = 0.25; // Gentle feedback
+    this.delayMix = 0.2; // Subtle delay mix
+    
     // Listen for note batches
     this.port.onmessage = (event) => {
       this.handleMessage(event.data);
     };
     
-    console.log(`CreatureProcessor initialized with ${this.numVoices} voices`);
+    console.log(`CreatureProcessor initialized with ${this.numVoices} voices, reverb, and delay`);
+  }
+  
+  initializeReverb() {
+    // Reverb parameters for a warm, spacious sound
+    const combDelayTimes = [0.03, 0.032, 0.034, 0.037]; // Various comb delays
+    const allpassDelayTimes = [0.005, 0.017]; // Allpass delays for diffusion
+    
+    // Initialize comb filters
+    for (let i = 0; i < combDelayTimes.length; i++) {
+      const delayLength = Math.round(48000 * combDelayTimes[i]);
+      const buffer = new Float32Array(delayLength);
+      buffer.fill(0); // Initialize to silence
+      this.reverbDelayLines.push({
+        buffer,
+        writePos: 0,
+        feedback: 0.5, // Moderate feedback for warmth
+        damping: 0.2,  // High frequency damping
+        lastOutput: 0  // Initialize damping state
+      });
+    }
+    
+    // Initialize allpass filters
+    for (let i = 0; i < allpassDelayTimes.length; i++) {
+      const delayLength = Math.round(48000 * allpassDelayTimes[i]);
+      const buffer = new Float32Array(delayLength);
+      buffer.fill(0); // Initialize to silence
+      this.reverbAllpass.push({
+        buffer,
+        writePos: 0,
+        gain: 0.7
+      });
+    }
   }
 
   handleMessage(data) {
@@ -198,7 +281,7 @@ class CreatureProcessor extends AudioWorkletProcessor {
       // Sort by start time
       this.noteEvents.sort((a, b) => a.startFrame - b.startFrame);
       
-      console.log(`Queued ${data.events.length} note events`);
+      console.log(`Queued ${data.events.length} note events from agents`);
     }
   }
 
@@ -208,25 +291,99 @@ class CreatureProcessor extends AudioWorkletProcessor {
     
     // Process each sample
     for (let i = 0; i < blockSize; i++) {
-      const frameIndex = currentFrame + i;
+      const frameIndex = this.currentFrame + i;
       
       // Check for new note events
       this.processNoteEvents(frameIndex);
       
-      // Generate audio from all active voices
-      let sample = 0;
+      // Generate dry audio from all active voices
+      let drySample = 0;
       for (const voice of this.voices) {
-        sample += voice.process(frameIndex, sampleRate);
+        drySample += voice.process(frameIndex, sampleRate);
       }
       
-      // Apply gentle limiting and output to both channels
-      sample = Math.tanh(sample * 0.8) * 0.6; // Reduced gain for gentler sound
+      // Apply gentle limiting to dry signal
+      drySample = Math.tanh(drySample * 0.5) * 0.4;
       
-      if (output.length > 0) output[0][i] = sample;
-      if (output.length > 1) output[1][i] = sample;
+      // Safety check for NaN/Infinity
+      if (!isFinite(drySample)) drySample = 0;
+      
+      // Apply delay effect
+      const delayedSample = this.processDelay(drySample);
+      
+      // Apply reverb effect
+      const reverbSample = this.processReverb(drySample + delayedSample * 0.3);
+      
+      // Mix dry, delay, and reverb
+      const wetSample = drySample * 1.0 + delayedSample * this.delayMix + reverbSample * 0.6;
+      
+      // Final safety check and gentle limiting - increase overall output
+      let finalSample = Math.tanh(wetSample * 1.5) * 0.8;
+      if (!isFinite(finalSample)) finalSample = 0;
+      
+      if (output.length > 0) output[0][i] = finalSample;
+      if (output.length > 1) output[1][i] = finalSample;
     }
     
+    // Update frame counter
+    this.currentFrame += blockSize;
+    
     return true;
+  }
+  
+  processDelay(input) {
+    // Safety check
+    if (!isFinite(input)) input = 0;
+    
+    const delaySamples = Math.round(this.delayTime * 48000);
+    const readPos = (this.delayWritePos - delaySamples + this.delayBuffer.length) % this.delayBuffer.length;
+    
+    const delayedSample = this.delayBuffer[readPos] || 0;
+    
+    // Write input + feedback to delay buffer with safety check
+    const feedbackSample = input + delayedSample * this.delayFeedback;
+    this.delayBuffer[this.delayWritePos] = isFinite(feedbackSample) ? feedbackSample : 0;
+    this.delayWritePos = (this.delayWritePos + 1) % this.delayBuffer.length;
+    
+    return isFinite(delayedSample) ? delayedSample : 0;
+  }
+  
+  processReverb(input) {
+    // Safety check
+    if (!isFinite(input)) input = 0;
+    
+    let reverbSample = 0;
+    
+    // Process through comb filters
+    for (const comb of this.reverbDelayLines) {
+      const delayedSample = comb.buffer[comb.writePos] || 0;
+      
+      // Apply damping (simple lowpass) with safety checks
+      const dampedFeedback = delayedSample * comb.feedback * (1 - comb.damping) + 
+                            (comb.lastOutput || 0) * comb.damping;
+      comb.lastOutput = isFinite(dampedFeedback) ? dampedFeedback : 0;
+      
+      const newSample = input + comb.lastOutput;
+      comb.buffer[comb.writePos] = isFinite(newSample) ? newSample : 0;
+      comb.writePos = (comb.writePos + 1) % comb.buffer.length;
+      
+      if (isFinite(delayedSample)) {
+        reverbSample += delayedSample;
+      }
+    }
+    
+    // Process through allpass filters for diffusion
+    for (const allpass of this.reverbAllpass) {
+      const delayedSample = allpass.buffer[allpass.writePos] || 0;
+      const newSample = reverbSample + delayedSample * allpass.gain;
+      allpass.buffer[allpass.writePos] = isFinite(newSample) ? newSample : 0;
+      reverbSample = delayedSample - reverbSample * allpass.gain;
+      allpass.writePos = (allpass.writePos + 1) % allpass.buffer.length;
+      
+      if (!isFinite(reverbSample)) reverbSample = 0;
+    }
+    
+    return isFinite(reverbSample) ? reverbSample * 0.15 : 0; // Gentle reverb level
   }
 
   processNoteEvents(currentFrame) {

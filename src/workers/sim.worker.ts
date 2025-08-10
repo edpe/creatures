@@ -20,11 +20,6 @@ interface NoteEvent {
   timbre: number; // Timbre parameter 0-1
 }
 
-interface NoteBatch {
-  type: "notes";
-  events: NoteEvent[];
-}
-
 interface KuramotoAgent {
   id: number;
   beatPhase: number; // Phase for beat timing
@@ -47,8 +42,16 @@ interface PhaseSnapshot {
 }
 
 interface WorkerMessage {
-  type: "start" | "stop" | "update" | "phase" | "notes";
-  data?: EnvironmentState | PhaseSnapshot | NoteBatch;
+  type:
+    | "start"
+    | "stop"
+    | "update"
+    | "phase"
+    | "notes"
+    | "requestAudioTime"
+    | "audioTime";
+  data?: any;
+  audioTime?: number; // For audioTime messages
 }
 
 /**
@@ -60,8 +63,13 @@ class PitchField {
   private baseOctave: number = 4; // Reference octave (A4 = 440Hz)
   private lookAhead: number = 0.1; // 100ms look-ahead for scheduling
 
-  constructor() {}
+  // Conversation clustering state
+  private conversationHistory: Array<{ time: number; agentId: number }> = [];
+  private lastConversationEnd: number = 0;
+  private conversationCooldown: number = 6.0; // 6 seconds of silence between conversations
+  private responseWindows = [2.0, 1.5, 1.0, 0.8]; // Decreasing response windows
 
+  constructor() {}
   /**
    * Generate notes from agents that cross beat boundaries
    */
@@ -77,24 +85,77 @@ class PitchField {
   ): NoteEvent[] {
     const notes: NoteEvent[] = [];
 
+    // Clean up old conversation history
+    this.cleanupOldConversation(currentAudioTime);
+
     for (const agent of agents) {
       if (this.didCrossBeat(agent.lastBeatPhase, agent.beatPhase)) {
-        if (this.shouldEmitNote(agent.energy)) {
+        if (this.shouldEmitNote(agent, agents, currentAudioTime)) {
           const note = this.createNoteFromAgent(agent, currentAudioTime);
           notes.push(note);
+
+          // Record this agent's participation in the conversation
+          this.conversationHistory.push({
+            time: currentAudioTime,
+            agentId: agent.id,
+          });
         }
       }
     }
-
     return notes;
   }
 
   /**
+   * Clean up old conversation history
+   */
+  private cleanupOldConversation(currentTime: number): void {
+    // Remove conversation entries older than the cooldown period
+    this.conversationHistory = this.conversationHistory.filter(
+      (entry) => currentTime - entry.time <= 10.0 // Keep 10 seconds of history
+    );
+
+    // Update conversation end time if conversation has been quiet
+    if (this.conversationHistory.length > 0) {
+      const lastEntry =
+        this.conversationHistory[this.conversationHistory.length - 1];
+      if (currentTime - lastEntry.time > 3.0) {
+        this.lastConversationEnd = lastEntry.time;
+      }
+    }
+  }
+
+  /**
+   * Get the current conversation state
+   */
+  private getConversationState(currentTime: number): {
+    isInCooldown: boolean;
+    conversationPosition: number; // 0 = first speaker, 1 = second, etc.
+    timeSinceLastSpeaker: number;
+  } {
+    const timeSinceEnd = currentTime - this.lastConversationEnd;
+    const isInCooldown = timeSinceEnd < this.conversationCooldown;
+
+    // Filter recent conversation (within last 8 seconds)
+    const recentHistory = this.conversationHistory.filter(
+      (entry) => currentTime - entry.time <= 8.0
+    );
+
+    const conversationPosition = recentHistory.length;
+    const timeSinceLastSpeaker =
+      recentHistory.length > 0
+        ? currentTime - recentHistory[recentHistory.length - 1].time
+        : Infinity;
+
+    return { isInCooldown, conversationPosition, timeSinceLastSpeaker };
+  }
+
+  /**
    * Check if agent crossed a beat boundary (phase wrapped around 2π)
+   * Much more selective - only check major beat positions
    */
   private didCrossBeat(lastPhase: number, currentPhase: number): boolean {
-    // Detect if we crossed 0 (2π boundary) or specific beat positions
-    const beatPositions = [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2]; // 4 beats per cycle
+    // Only check major beat positions (every quarter cycle instead of every eighth)
+    const beatPositions = [0, Math.PI]; // Only 2 beats per cycle instead of 4
 
     for (const beatPos of beatPositions) {
       if (this.crossedPhase(lastPhase, currentPhase, beatPos)) {
@@ -103,7 +164,6 @@ class PitchField {
     }
     return false;
   }
-
   /**
    * Check if phase crossed a specific threshold
    */
@@ -123,12 +183,59 @@ class PitchField {
   }
 
   /**
-   * Probabilistic note emission based on agent energy
+   * Probabilistic note emission with conversation clustering
    */
-  private shouldEmitNote(energy: number): boolean {
-    // Higher energy = higher probability
-    const probability = energy * 0.6; // Max 60% chance per beat
-    return Math.random() < probability;
+  private shouldEmitNote(
+    agent: { id: number; energy: number },
+    agents: Array<{ id: number }>,
+    currentTime: number
+  ): boolean {
+    const { isInCooldown, conversationPosition, timeSinceLastSpeaker } =
+      this.getConversationState(currentTime);
+
+    // During cooldown, no one speaks (conversation has ended)
+    if (isInCooldown) {
+      return false;
+    }
+
+    // First speaker: base probability from agent energy
+    if (conversationPosition === 0) {
+      const baseProbability = agent.energy * 0.08; // 8% base chance (reduced)
+      return Math.random() < baseProbability;
+    }
+
+    // Subsequent speakers: must be within response window
+    if (conversationPosition < this.responseWindows.length) {
+      const windowTime = this.responseWindows[conversationPosition - 1];
+
+      if (timeSinceLastSpeaker <= windowTime) {
+        // Higher probability for neighbors of previous speaker
+        const recentHistory = this.conversationHistory.filter(
+          (entry) => currentTime - entry.time <= 8.0
+        );
+        const lastSpeaker = recentHistory[recentHistory.length - 1];
+
+        let probability = agent.energy * 0.3; // Base response probability
+
+        if (lastSpeaker) {
+          const agentCount = agents.length;
+          const lastId = lastSpeaker.agentId;
+          const currentId = agent.id;
+
+          // Check if this agent is a neighbor of the last speaker
+          const leftNeighbor = (lastId - 1 + agentCount) % agentCount;
+          const rightNeighbor = (lastId + 1) % agentCount;
+
+          if (currentId === leftNeighbor || currentId === rightNeighbor) {
+            probability *= 2.5; // Neighbors are more likely to respond
+          }
+        }
+
+        return Math.random() < Math.min(probability, 0.6);
+      }
+    }
+
+    return false;
   }
 
   /**
@@ -153,14 +260,14 @@ class PitchField {
       Math.pow(2, octave - this.baseOctave) *
       Math.pow(2, degree / 12);
 
-    // Duration between 0.3-1.6 seconds
-    const duration = 0.3 + Math.random() * 1.3;
+    // Longer, more contemplative durations (0.8-3.2 seconds)
+    const duration = 0.8 + Math.random() * 2.4;
 
-    // Amplitude from agent energy (gentle range)
-    const amplitude = agent.energy * 0.4; // Max 40% for gentle sound
+    // Much gentler amplitudes - whisper-like
+    const amplitude = agent.energy * 0.12; // Max 12% (was 40%)
 
-    // Timbre variation (slight FM ratio variation)
-    const timbre = 0.3 + Math.random() * 0.4; // 0.3-0.7 range
+    // Softer, more mellow timbres - less harsh FM
+    const timbre = 0.1 + Math.random() * 0.3; // 0.1-0.4 range (was 0.3-0.7)
 
     return {
       startTime: currentAudioTime + this.lookAhead,
@@ -214,7 +321,7 @@ class KuramotoSimulator {
         beatOmega: 1.0 + (Math.random() - 0.5) * 0.1, // ~1 Hz ± 5%
         phraseOmega: 0.25 + (Math.random() - 0.5) * 0.02, // ~0.25 Hz ± 1%
         size: Math.random(), // Random size 0-1
-        energy: 0.3 + Math.random() * 0.4, // Energy 0.3-0.7 for gentle notes
+        energy: 0.1 + Math.random() * 0.3, // Lower energy 0.1-0.4 (was 0.3-0.7) - more contemplative
         lastBeatPhase: 0,
       };
       this.agents.push(agent);
@@ -230,13 +337,8 @@ class KuramotoSimulator {
   }
 
   update(currentTime: number): { snapshot: PhaseSnapshot; notes: NoteEvent[] } {
-    // Store last beat phases before update
-    const lastBeatPhases = this.agents.map((a) => a.lastBeatPhase);
-
     // Update phases using Kuramoto model
-    this.updatePhases();
-
-    // Generate notes from agents that crossed beat boundaries
+    this.updatePhases(); // Generate notes from agents that crossed beat boundaries
     const notes = this.pitchField.generateNotes(
       this.agents.map((agent) => ({
         id: agent.id,
@@ -462,8 +564,13 @@ class EnvironmentSimulator {
   }
 
   private updatePhases(): void {
-    const currentAudioTime =
-      this.audioStartTime + (performance.now() / 1000 - this.audioStartTime);
+    // Post a request for current audio context time
+    self.postMessage({
+      type: "requestAudioTime",
+    });
+  }
+
+  updatePhasesWithAudioTime(currentAudioTime: number): void {
     const result = this.kuramotoSim.update(currentAudioTime);
 
     // Post phase snapshot
@@ -525,6 +632,12 @@ self.addEventListener("message", (event: MessageEvent<WorkerMessage>) => {
 
     case "stop":
       simulator.stop();
+      break;
+
+    case "audioTime":
+      if (event.data.audioTime !== undefined) {
+        simulator.updatePhasesWithAudioTime(event.data.audioTime);
+      }
       break;
 
     default:
