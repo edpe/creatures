@@ -4,9 +4,12 @@
  * and helpers for managing audio state
  */
 
+import { environmentService } from './env';
+
 class AudioService {
   private _context: AudioContext | null = null;
   private _isRunning = false;
+  private _environmentLoaded = false;
 
   /**
    * Get the singleton AudioContext instance
@@ -37,6 +40,16 @@ class AudioService {
       if (this.context.state === "suspended") {
         await this.context.resume();
       }
+      
+      // Initialize environment service if not already loaded
+      if (!this._environmentLoaded) {
+        await environmentService.initialize(this.context);
+        this._environmentLoaded = true;
+      }
+      
+      // Start the environment audio
+      environmentService.start();
+      
       this._isRunning = true;
     } catch (error) {
       console.error("Failed to start audio context:", error);
@@ -50,6 +63,9 @@ class AudioService {
    */
   async stop(): Promise<void> {
     try {
+      // Stop the environment audio
+      environmentService.stop();
+      
       if (this.context.state === "running") {
         await this.context.suspend();
       }
@@ -72,6 +88,13 @@ class AudioService {
    */
   getSampleRate(): number {
     return this.context.sampleRate;
+  }
+
+  /**
+   * Get environment service instance
+   */
+  get environment() {
+    return environmentService;
   }
 }
 

@@ -1,10 +1,20 @@
 import { useState, useCallback } from "react";
 import { audioService } from "./audio/ctx";
+import type { EnvironmentParameters } from "./audio/env";
 import "./App.css";
 
 function App() {
   const [status, setStatus] = useState<"stopped" | "running">("stopped");
   const [isLoading, setIsLoading] = useState(false);
+  
+  // Environment parameters state
+  const [envParams, setEnvParams] = useState({
+    light: 0.5,
+    wind: 0.3,
+    humidity: 0.6,
+    temperature: 0.4,
+    masterGain: 0.15
+  });
 
   const handleStart = useCallback(async () => {
     setIsLoading(true);
@@ -31,6 +41,20 @@ function App() {
       setIsLoading(false);
     }
   }, []);
+
+  // Handle environment parameter changes
+  const handleEnvParamChange = useCallback((param: keyof typeof envParams, value: number) => {
+    setEnvParams(prev => {
+      const newParams = { ...prev, [param]: value };
+      
+      // Update the audio worklet if running
+      if (status === "running") {
+        audioService.environment.setParameters({ [param]: value });
+      }
+      
+      return newParams;
+    });
+  }, [status]);
 
   return (
     <div className="app">
@@ -68,6 +92,82 @@ function App() {
               {audioService.context ? audioService.getSampleRate() : "N/A"} Hz
             </p>
             <p>Latency Hint: Interactive</p>
+          </div>
+
+          {/* Environment Controls */}
+          <div className="environment-controls">
+            <h3>Environment Parameters</h3>
+            <div className="param-grid">
+              <div className="param-control">
+                <label htmlFor="light">Light: {(envParams.light * 100).toFixed(0)}%</label>
+                <input
+                  id="light"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={envParams.light}
+                  onChange={(e) => handleEnvParamChange('light', parseFloat(e.target.value))}
+                  disabled={status === "stopped"}
+                />
+              </div>
+              
+              <div className="param-control">
+                <label htmlFor="wind">Wind: {(envParams.wind * 100).toFixed(0)}%</label>
+                <input
+                  id="wind"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={envParams.wind}
+                  onChange={(e) => handleEnvParamChange('wind', parseFloat(e.target.value))}
+                  disabled={status === "stopped"}
+                />
+              </div>
+              
+              <div className="param-control">
+                <label htmlFor="humidity">Humidity: {(envParams.humidity * 100).toFixed(0)}%</label>
+                <input
+                  id="humidity"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={envParams.humidity}
+                  onChange={(e) => handleEnvParamChange('humidity', parseFloat(e.target.value))}
+                  disabled={status === "stopped"}
+                />
+              </div>
+              
+              <div className="param-control">
+                <label htmlFor="temperature">Temperature: {(envParams.temperature * 100).toFixed(0)}%</label>
+                <input
+                  id="temperature"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={envParams.temperature}
+                  onChange={(e) => handleEnvParamChange('temperature', parseFloat(e.target.value))}
+                  disabled={status === "stopped"}
+                />
+              </div>
+              
+              <div className="param-control">
+                <label htmlFor="masterGain">Master Gain: {(envParams.masterGain * 100).toFixed(0)}%</label>
+                <input
+                  id="masterGain"
+                  type="range"
+                  min="0"
+                  max="0.5"
+                  step="0.01"
+                  value={envParams.masterGain}
+                  onChange={(e) => handleEnvParamChange('masterGain', parseFloat(e.target.value))}
+                  disabled={status === "stopped"}
+                />
+              </div>
+            </div>
           </div>
         </div>
       </header>
