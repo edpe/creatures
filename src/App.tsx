@@ -54,6 +54,15 @@ function App() {
     }
   }, []);
 
+  const handleTestNotes = useCallback(async () => {
+    try {
+      await audioService.testCreatureNotes();
+    } catch (error) {
+      console.error("Failed to test creature notes:", error);
+      alert("Failed to test creature notes. Make sure audio is running.");
+    }
+  }, []);
+
   // Handle environment parameter changes
   const handleEnvParamChange = useCallback(
     (param: keyof typeof envParams, value: number) => {
@@ -146,6 +155,14 @@ function App() {
               className="btn btn-stop"
             >
               {isLoading ? "Stopping..." : "Stop"}
+            </button>
+
+            <button
+              onClick={handleTestNotes}
+              disabled={status !== "running" || isLoading}
+              className="btn btn-test"
+            >
+              Test Notes
             </button>
           </div>
 

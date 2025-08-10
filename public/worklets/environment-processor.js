@@ -165,8 +165,8 @@ class EnvironmentProcessor extends AudioWorkletProcessor {
       const drone1 = this.generateTriangle(this.dronePhase1);
       const drone2 = this.generateTriangle(this.dronePhase2);
       
-      // Mix drone tones
-      const droneMix = (drone1 * 0.6 + drone2 * 0.4) * 0.08; // Very quiet drone
+      // Mix drone tones - increased level for better audibility
+      const droneMix = (drone1 * 0.6 + drone2 * 0.4) * 0.25; // Increased from 0.08
       
       // Combine noise and drone
       let sample = noise + droneMix;
@@ -178,6 +178,11 @@ class EnvironmentProcessor extends AudioWorkletProcessor {
       
       // Apply master gain
       sample *= masterGain;
+      
+      // Debug: Occasionally log output level
+      if (Math.random() < 0.00001) { // Very rare logging
+        console.log(`Environment output: ${sample.toFixed(4)}, noise: ${noise.toFixed(4)}, drone: ${droneMix.toFixed(4)}`);
+      }
       
       // Output to both channels (mono to stereo)
       if (output.length > 0) output[0][i] = sample;
