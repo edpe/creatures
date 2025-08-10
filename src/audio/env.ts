@@ -5,6 +5,7 @@
  */
 
 import SimWorker from "../workers/sim.worker.ts?worker";
+import { creaturesService } from "./creatures";
 
 export interface EnvironmentParameters {
   light: number;
@@ -24,9 +25,22 @@ export interface PhaseSnapshot {
   globalBeatPhase: number;
 }
 
+interface NoteEvent {
+  startTime: number; // Audio time in seconds
+  freq: number; // Frequency in Hz
+  dur: number; // Duration in seconds
+  amp: number; // Amplitude 0-1
+  timbre: number; // Timbre parameter 0-1
+}
+
+interface NoteBatch {
+  type: "notes";
+  events: NoteEvent[];
+}
+
 interface WorkerMessage {
-  type: "start" | "stop" | "update" | "phase";
-  data?: Omit<EnvironmentParameters, "masterGain"> | PhaseSnapshot;
+  type: "start" | "stop" | "update" | "phase" | "notes";
+  data?: Omit<EnvironmentParameters, "masterGain"> | PhaseSnapshot | NoteBatch;
 }
 
 class EnvironmentService {
@@ -39,6 +53,10 @@ class EnvironmentService {
 
   // Look-ahead time for parameter scheduling (100ms as specified)
   private readonly LOOK_AHEAD_TIME = 0.1;
+  
+  // Timing constants for scheduling
+  public static readonly LOOKAHEAD_MS = 100;
+  public static readonly DISPATCH_MS = 50;
 
   // Event listeners for parameter updates
   private updateListeners: ((
@@ -127,6 +145,24 @@ class EnvironmentService {
 
       // Could emit phase events here if needed for UI
       // For now, just store the snapshot for future note scheduling
+    } else if (message.type === "notes" && message.data) {
+      // Note batch from agent beat crossings
+      const noteBatch = message.data as NoteBatch;
+      this.forwardNotesToCreatures(noteBatch);
+    }
+  }
+
+  /**
+   * Forward note batches to the creatures service
+   */
+  private forwardNotesToCreatures(noteBatch: NoteBatch): void {
+    try {
+      creaturesService.schedule(noteBatch);
+      console.log(
+        `Forwarded ${noteBatch.events.length} notes from agents to creatures`
+      );
+    } catch (error) {
+      console.error("Failed to forward notes to creatures service:", error);
     }
   }
 
@@ -306,6 +342,47 @@ class EnvironmentService {
    */
   getCurrentPhaseSnapshot(): PhaseSnapshot | null {
     return this.currentPhaseSnapshot;
+  }
+
+  /**
+   * Add a listener for environment parameter updates
+   */
+  onUpdate(
+    listener: (params: Omit<EnvironmentParameters, "masterGain">) => void
+  ): void {
+    this.updateListeners.push(listener);
+  }
+
+  /**
+   * Remove a listener for environment parameter updates
+   */
+  offUpdate(
+    listener: (params: Omit<EnvironmentParameters, "masterGain">) => void
+  ): void {
+    const index = this.updateListeners.indexOf(listener);
+    if (index > -1) {
+      this.updateListeners.splice(index, 1);
+    }
+  }
+  setMasterGain(gain: number): void {
+    if (!this.gainNode) {
+      return;
+    }
+
+    // Clamp to leave ~12 dB headroom (0.25 = -12dB)
+    const clampedGain = Math.max(0, Math.min(0.25, gain * 0.25));
+    
+    // Apply soft-clipping curve for gentle limiting
+    const softClipped = Math.tanh(clampedGain * 2) * 0.5;
+    
+    this.gainNode.gain.setValueAtTime(softClipped, this.audioContext?.currentTime || 0);
+  }
+
+  /**
+   * Get current master gain level
+   */
+  getMasterGain(): number {
+    return this.gainNode?.gain.value || 0;
   }
 
   /**

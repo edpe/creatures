@@ -12,6 +12,15 @@ class AudioService {
   private _isRunning = false;
   private _environmentLoaded = false;
   private _creaturesLoaded = false;
+  
+  // Parameter storage for real-time control
+  private _parameters = {
+    agentCount: 16,
+    ambienceLevel: 0.7,
+    tonicMidi: 57, // A3
+    tempoBias: 1.0,
+    couplingStrength: 0.15,
+  };
 
   /**
    * Get the singleton AudioContext instance
@@ -153,6 +162,52 @@ class AudioService {
    */
   get environment() {
     return environmentService;
+  }
+
+  /**
+   * Update a control parameter
+   */
+  setParameter(param: string, value: number): void {
+    if (param in this._parameters) {
+      (this._parameters as any)[param] = value;
+      
+      // Apply parameter changes to running services
+      switch (param) {
+        case 'ambienceLevel':
+          environmentService.setMasterGain(value);
+          break;
+        case 'couplingStrength':
+          // TODO: Send to worker via message
+          break;
+        case 'tempoBias':
+          // TODO: Send to worker via message
+          break;
+        // agentCount and tonicMidi require restart
+      }
+    }
+  }
+
+  /**
+   * Get a control parameter value
+   */
+  getParameter(param: string): number {
+    return (this._parameters as any)[param] || 0;
+  }
+
+  /**
+   * Get all parameters
+   */
+  getAllParameters() {
+    return { ...this._parameters };
+  }
+
+  /**
+   * Force audio context resume for mobile unlock
+   */
+  async forceResume(): Promise<void> {
+    if (this.context.state === "suspended") {
+      await this.context.resume();
+    }
   }
 }
 

@@ -2,6 +2,7 @@
  * Simulation Worker - Updates environment state continuously
  * Generates slowly evolving environment parameters using LFOs and random walk
  * Implements Kuramoto phase model for weakly coupled oscillators
+ * Includes PitchField for agent-to-note mapping with pentatonic harmony
  */
 
 interface EnvironmentState {
@@ -11,12 +12,28 @@ interface EnvironmentState {
   temperature: number;
 }
 
+interface NoteEvent {
+  startTime: number; // Audio time in seconds
+  freq: number; // Frequency in Hz
+  dur: number; // Duration in seconds
+  amp: number; // Amplitude 0-1
+  timbre: number; // Timbre parameter 0-1
+}
+
+interface NoteBatch {
+  type: "notes";
+  events: NoteEvent[];
+}
+
 interface KuramotoAgent {
   id: number;
   beatPhase: number; // Phase for beat timing
   phrasePhase: number; // Phase for phrase structure
   beatOmega: number; // Natural beat frequency
   phraseOmega: number; // Natural phrase frequency
+  size: number; // Agent size 0-1 (affects octave choice)
+  energy: number; // Agent energy 0-1 (affects amplitude)
+  lastBeatPhase: number; // Previous beat phase for crossing detection
 }
 
 interface PhaseSnapshot {
@@ -30,15 +47,156 @@ interface PhaseSnapshot {
 }
 
 interface WorkerMessage {
-  type: "start" | "stop" | "update" | "phase";
-  data?: EnvironmentState | PhaseSnapshot;
+  type: "start" | "stop" | "update" | "phase" | "notes";
+  data?: EnvironmentState | PhaseSnapshot | NoteBatch;
+}
+
+/**
+ * PitchField - Maps agents to musical notes with pentatonic harmony
+ */
+class PitchField {
+  private tonic: number = 220; // A3 as tonic in Hz
+  private pentatonicDegrees: number[] = [0, 2, 4, 7, 9]; // Major pentatonic intervals
+  private baseOctave: number = 4; // Reference octave (A4 = 440Hz)
+  private lookAhead: number = 0.1; // 100ms look-ahead for scheduling
+
+  constructor() {}
+
+  /**
+   * Generate notes from agents that cross beat boundaries
+   */
+  generateNotes(
+    agents: Array<{
+      id: number;
+      beatPhase: number;
+      size: number;
+      energy: number;
+      lastBeatPhase: number;
+    }>,
+    currentAudioTime: number
+  ): NoteEvent[] {
+    const notes: NoteEvent[] = [];
+
+    for (const agent of agents) {
+      if (this.didCrossBeat(agent.lastBeatPhase, agent.beatPhase)) {
+        if (this.shouldEmitNote(agent.energy)) {
+          const note = this.createNoteFromAgent(agent, currentAudioTime);
+          notes.push(note);
+        }
+      }
+    }
+
+    return notes;
+  }
+
+  /**
+   * Check if agent crossed a beat boundary (phase wrapped around 2π)
+   */
+  private didCrossBeat(lastPhase: number, currentPhase: number): boolean {
+    // Detect if we crossed 0 (2π boundary) or specific beat positions
+    const beatPositions = [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2]; // 4 beats per cycle
+
+    for (const beatPos of beatPositions) {
+      if (this.crossedPhase(lastPhase, currentPhase, beatPos)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Check if phase crossed a specific threshold
+   */
+  private crossedPhase(
+    lastPhase: number,
+    currentPhase: number,
+    threshold: number
+  ): boolean {
+    // Handle phase wrapping
+    if (lastPhase > currentPhase) {
+      // Phase wrapped around 2π
+      return lastPhase > threshold || currentPhase <= threshold;
+    } else {
+      // Normal phase progression
+      return lastPhase <= threshold && currentPhase > threshold;
+    }
+  }
+
+  /**
+   * Probabilistic note emission based on agent energy
+   */
+  private shouldEmitNote(energy: number): boolean {
+    // Higher energy = higher probability
+    const probability = energy * 0.6; // Max 60% chance per beat
+    return Math.random() < probability;
+  }
+
+  /**
+   * Create a note event from an agent's properties
+   */
+  private createNoteFromAgent(
+    agent: { id: number; size: number; energy: number },
+    currentAudioTime: number
+  ): NoteEvent {
+    // Pick a pentatonic degree (uniform distribution)
+    const degreeIndex = Math.floor(
+      Math.random() * this.pentatonicDegrees.length
+    );
+    const degree = this.pentatonicDegrees[degreeIndex];
+
+    // Map agent size to octave band with small random walk
+    const octave = this.getOctaveFromSize(agent.size);
+
+    // Calculate frequency: tonic * 2^(octave-4) * 2^(degree/12)
+    const frequency =
+      this.tonic *
+      Math.pow(2, octave - this.baseOctave) *
+      Math.pow(2, degree / 12);
+
+    // Duration between 0.3-1.6 seconds
+    const duration = 0.3 + Math.random() * 1.3;
+
+    // Amplitude from agent energy (gentle range)
+    const amplitude = agent.energy * 0.4; // Max 40% for gentle sound
+
+    // Timbre variation (slight FM ratio variation)
+    const timbre = 0.3 + Math.random() * 0.4; // 0.3-0.7 range
+
+    return {
+      startTime: currentAudioTime + this.lookAhead,
+      freq: frequency,
+      dur: duration,
+      amp: amplitude,
+      timbre: timbre,
+    };
+  }
+
+  /**
+   * Map agent size to octave band: small→high, medium→mid, large→low
+   */
+  private getOctaveFromSize(size: number): number {
+    // Add small random walk (±0.5 octave)
+    const randomWalk = (Math.random() - 0.5) * 1.0;
+
+    if (size < 0.33) {
+      // Small agents: octaves 5-6 (high)
+      return 5.5 + randomWalk;
+    } else if (size < 0.67) {
+      // Medium agents: octaves 4-5 (mid)
+      return 4.5 + randomWalk;
+    } else {
+      // Large agents: octaves 3-4 (low)
+      return 3.5 + randomWalk;
+    }
+  }
 }
 
 class KuramotoSimulator {
   private agents: KuramotoAgent[] = [];
-  private numAgents: number = 8; // Configurable number of agents
+  private numAgents: number = 16; // Increase to ~16 as specified
   private coupling: number = 0.15; // Weak coupling strength
   private dt: number = 0.05; // 50ms time step
+  private pitchField: PitchField = new PitchField();
 
   constructor() {
     this.initializeAgents();
@@ -55,20 +213,40 @@ class KuramotoSimulator {
         // Slightly different natural frequencies for each agent
         beatOmega: 1.0 + (Math.random() - 0.5) * 0.1, // ~1 Hz ± 5%
         phraseOmega: 0.25 + (Math.random() - 0.5) * 0.02, // ~0.25 Hz ± 1%
+        size: Math.random(), // Random size 0-1
+        energy: 0.3 + Math.random() * 0.4, // Energy 0.3-0.7 for gentle notes
+        lastBeatPhase: 0,
       };
       this.agents.push(agent);
     }
 
-    console.log(`Initialized ${this.numAgents} Kuramoto agents`);
+    console.log(
+      `Initialized ${this.numAgents} Kuramoto agents with PitchField mapping`
+    );
   }
 
   start(audioStartTime: number): void {
     console.log(`Kuramoto simulation started at audio time ${audioStartTime}`);
   }
 
-  update(currentTime: number): PhaseSnapshot {
+  update(currentTime: number): { snapshot: PhaseSnapshot; notes: NoteEvent[] } {
+    // Store last beat phases before update
+    const lastBeatPhases = this.agents.map((a) => a.lastBeatPhase);
+
     // Update phases using Kuramoto model
     this.updatePhases();
+
+    // Generate notes from agents that crossed beat boundaries
+    const notes = this.pitchField.generateNotes(
+      this.agents.map((agent) => ({
+        id: agent.id,
+        beatPhase: agent.beatPhase,
+        size: agent.size,
+        energy: agent.energy,
+        lastBeatPhase: agent.lastBeatPhase,
+      })),
+      currentTime
+    );
 
     // Create snapshot
     const snapshot: PhaseSnapshot = {
@@ -81,17 +259,20 @@ class KuramotoSimulator {
       globalBeatPhase: this.computeGlobalBeatPhase(),
     };
 
-    return snapshot;
+    return { snapshot, notes };
   }
 
   private updatePhases(): void {
-    // Store current phases for coupling calculations
+    // Store current phases for coupling calculations and beat crossing detection
     const currentBeatPhases = this.agents.map((a) => a.beatPhase);
     const currentPhrasePhases = this.agents.map((a) => a.phrasePhase);
 
     // Update each agent using Kuramoto model
     for (let i = 0; i < this.agents.length; i++) {
       const agent = this.agents[i];
+
+      // Store last beat phase for beat crossing detection
+      agent.lastBeatPhase = agent.beatPhase;
 
       // Calculate coupling for beat phase (ring topology)
       const leftNeighbor = (i - 1 + this.numAgents) % this.numAgents;
@@ -283,18 +464,30 @@ class EnvironmentSimulator {
   private updatePhases(): void {
     const currentAudioTime =
       this.audioStartTime + (performance.now() / 1000 - this.audioStartTime);
-    const snapshot = this.kuramotoSim.update(currentAudioTime);
+    const result = this.kuramotoSim.update(currentAudioTime);
 
-    const message: WorkerMessage = {
+    // Post phase snapshot
+    const phaseMessage: WorkerMessage = {
       type: "phase",
-      data: snapshot,
+      data: result.snapshot,
     };
+    self.postMessage(phaseMessage);
 
-    self.postMessage(message);
+    // Post notes if any were generated
+    if (result.notes.length > 0) {
+      const notesMessage: WorkerMessage = {
+        type: "notes",
+        data: {
+          type: "notes",
+          events: result.notes,
+        },
+      };
+      self.postMessage(notesMessage);
+    }
 
     // Log synchrony info occasionally (every 2 seconds)
     if (Math.floor(currentAudioTime * 20) % 40 === 0) {
-      this.logSynchronyInfo(snapshot);
+      this.logSynchronyInfo(result.snapshot);
     }
   }
 
