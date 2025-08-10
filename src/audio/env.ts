@@ -14,9 +14,19 @@ export interface EnvironmentParameters {
   masterGain: number;
 }
 
+export interface PhaseSnapshot {
+  tAudio: number;
+  agents: Array<{
+    id: number;
+    beatPhase: number;
+    phrasePhase: number;
+  }>;
+  globalBeatPhase: number;
+}
+
 interface WorkerMessage {
-  type: "start" | "stop" | "update";
-  data?: Omit<EnvironmentParameters, "masterGain">;
+  type: "start" | "stop" | "update" | "phase";
+  data?: Omit<EnvironmentParameters, "masterGain"> | PhaseSnapshot;
 }
 
 class EnvironmentService {
@@ -34,6 +44,9 @@ class EnvironmentService {
   private updateListeners: ((
     params: Omit<EnvironmentParameters, "masterGain">
   ) => void)[] = [];
+
+  // Phase snapshot storage
+  private currentPhaseSnapshot: PhaseSnapshot | null = null;
 
   /**
    * Initialize the environment worklet
@@ -101,10 +114,19 @@ class EnvironmentService {
    */
   private handleWorkerMessage(message: WorkerMessage): void {
     if (message.type === "update" && message.data) {
-      this.applyWorkerUpdate(message.data);
+      // Environment parameter update
+      const envData = message.data as Omit<EnvironmentParameters, "masterGain">;
+      this.applyWorkerUpdate(envData);
 
       // Notify listeners
-      this.updateListeners.forEach((listener) => listener(message.data!));
+      this.updateListeners.forEach((listener) => listener(envData));
+    } else if (message.type === "phase" && message.data) {
+      // Phase snapshot update
+      const phaseData = message.data as PhaseSnapshot;
+      this.currentPhaseSnapshot = phaseData;
+
+      // Could emit phase events here if needed for UI
+      // For now, just store the snapshot for future note scheduling
     }
   }
 
@@ -277,6 +299,13 @@ class EnvironmentService {
     if (index > -1) {
       this.updateListeners.splice(index, 1);
     }
+  }
+
+  /**
+   * Get current phase snapshot from Kuramoto simulation
+   */
+  getCurrentPhaseSnapshot(): PhaseSnapshot | null {
+    return this.currentPhaseSnapshot;
   }
 
   /**

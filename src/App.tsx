@@ -19,6 +19,13 @@ function App() {
   // Track simulation status
   const [isSimulating, setIsSimulating] = useState(false);
 
+  // Kuramoto phase info for display
+  const [phaseInfo, setPhaseInfo] = useState<{
+    globalPhase: number;
+    coherence: number;
+    agentCount: number;
+  } | null>(null);
+
   const handleStart = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -82,6 +89,39 @@ function App() {
     };
   }, []);
 
+  // Poll for phase information when simulation is running
+  useEffect(() => {
+    if (!isSimulating) {
+      setPhaseInfo(null);
+      return;
+    }
+
+    const interval = setInterval(() => {
+      const snapshot = audioService.environment.getCurrentPhaseSnapshot();
+      if (snapshot) {
+        // Calculate coherence (order parameter)
+        let sumSin = 0;
+        let sumCos = 0;
+
+        for (const agent of snapshot.agents) {
+          sumSin += Math.sin(agent.beatPhase);
+          sumCos += Math.cos(agent.beatPhase);
+        }
+
+        const coherence =
+          Math.sqrt(sumSin * sumSin + sumCos * sumCos) / snapshot.agents.length;
+
+        setPhaseInfo({
+          globalPhase: snapshot.globalBeatPhase,
+          coherence,
+          agentCount: snapshot.agents.length,
+        });
+      }
+    }, 500); // Update UI every 500ms
+
+    return () => clearInterval(interval);
+  }, [isSimulating]);
+
   return (
     <div className="app">
       <header className="app-header">
@@ -118,6 +158,16 @@ function App() {
               {audioService.context ? audioService.getSampleRate() : "N/A"} Hz
             </p>
             <p>Latency Hint: Interactive</p>
+            {phaseInfo && (
+              <>
+                <p>Kuramoto Agents: {phaseInfo.agentCount}</p>
+                <p>Phase Coherence: {phaseInfo.coherence.toFixed(3)}</p>
+                <p>
+                  Global Beat Phase:{" "}
+                  {((phaseInfo.globalPhase * 180) / Math.PI).toFixed(1)}°
+                </p>
+              </>
+            )}
           </div>
 
           {/* Environment Controls */}

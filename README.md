@@ -15,6 +15,11 @@ A minimal React + Vite TypeScript project for a fully client-side audio applicat
   - Random walk for organic variation
   - 200ms update interval with 100ms audio look-ahead
   - No UI jank - runs entirely in background worker
+- **Kuramoto Phase Model**: Weakly coupled oscillators for musical timing:
+  - 8 configurable agents with beat and phrase phase oscillators
+  - Ring topology with nearest-neighbor coupling
+  - Natural frequency variation per agent (±5% beat, ±1% phrase)
+  - 50ms phase snapshots with global coherence tracking
 
 ## Project Structure
 
@@ -55,12 +60,15 @@ A minimal React + Vite TypeScript project for a fully client-side audio applicat
 
 4. Click "Start" to initialize the audio context and begin simulation
 
-5. Watch the environment parameters evolve automatically:
+6. Watch the environment parameters and Kuramoto phase information:
    - **Light**: Affects filter brightness (simulated - orange slider)
    - **Wind**: Controls wind noise level (simulated - orange slider)
    - **Humidity**: Adds to ambient noise (simulated - orange slider)
    - **Temperature**: Slightly detunes the drone (simulated - orange slider)
    - **Master Gain**: Overall volume control (manual - blue slider)
+   - **Kuramoto Agents**: Shows number of phase-coupled oscillators
+   - **Phase Coherence**: Measure of synchronization (0-1, higher = more synchronized)
+   - **Global Beat Phase**: Average phase of all oscillators
 
 The first four parameters are continuously updated by the simulation worker using slow LFOs and random walk, creating a naturally breathing ambient environment. Only the Master Gain slider remains under manual control.
 
@@ -71,6 +79,9 @@ The first four parameters are continuously updated by the simulation worker usin
 - **Organic Variation**: Random walk + LFO combination creates natural feel
 - **Audio Scheduling**: 100ms look-ahead prevents audio dropouts
 - **Raw postMessage**: Simple worker communication without external libraries
+- **Kuramoto Model**: Weakly coupled phase oscillators for musical timing
+- **Phase Coherence**: Real-time synchronization tracking and display
+- **Dual Update Rates**: 200ms for environment, 50ms for phase snapshots
 
 ## Audio Features
 
@@ -93,4 +104,7 @@ npm run build
 ✅ Environment parameters evolve automatically via Web Worker  
 ✅ The ambient bed subtly breathes over time with no UI jank  
 ✅ 100ms look-ahead scheduling prevents audio dropouts  
-✅ Overall level maintains conservative headroom
+✅ Overall level maintains conservative headroom  
+✅ Kuramoto phase model with 8 agents shows synchrony/divergence  
+✅ Phase coherence tracking demonstrates weakly coupled oscillator behavior  
+✅ 50ms phase snapshots stored for future note scheduling
