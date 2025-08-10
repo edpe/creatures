@@ -1,6 +1,6 @@
 # Creatures Audio App
 
-A minimal React + Vite TypeScript project for a fully client-side audio application with ambient environment sounds.
+A minimal React + Vite TypeScript project for a fully client-side audio application with ambient environment sounds driven by continuous simulation.
 
 ## Features
 
@@ -10,6 +10,11 @@ A minimal React + Vite TypeScript project for a fully client-side audio applicat
   - Gentle drone tones with triangle waves
   - Environmental parameter control (light, wind, humidity, temperature)
   - Conservative levels with -12 dBFS headroom
+- **Simulation Worker**: Continuously evolves environment parameters using:
+  - Very slow LFOs with different periods (78-137 seconds)
+  - Random walk for organic variation
+  - 200ms update interval with 100ms audio look-ahead
+  - No UI jank - runs entirely in background worker
 
 ## Project Structure
 
@@ -21,11 +26,14 @@ A minimal React + Vite TypeScript project for a fully client-side audio applicat
 ├── src/
 │   ├── audio/
 │   │   ├── ctx.ts                     # Audio context service
-│   │   └── env.ts                     # Environment worklet loader
+│   │   └── env.ts                     # Environment worklet loader + worker integration
+│   ├── workers/
+│   │   └── sim.worker.ts              # Environment simulation worker
 │   ├── App.tsx                        # Main React component
 │   ├── App.css                        # Styles
 │   ├── main.tsx                       # App entry point
-│   └── index.css                      # Global styles
+│   ├── index.css                      # Global styles
+│   └── vite-env.d.ts                  # Worker type definitions
 ├── package.json
 ├── vite.config.ts
 └── tsconfig.json
@@ -45,14 +53,24 @@ A minimal React + Vite TypeScript project for a fully client-side audio applicat
 
 3. Open your browser to `http://localhost:5173`
 
-4. Click "Start" to initialize the audio context
+4. Click "Start" to initialize the audio context and begin simulation
 
-5. Use the environment parameter sliders to control the ambient bed:
-   - **Light**: Affects filter brightness
-   - **Wind**: Controls wind noise level
-   - **Humidity**: Adds to ambient noise
-   - **Temperature**: Slightly detunes the drone
-   - **Master Gain**: Overall volume control
+5. Watch the environment parameters evolve automatically:
+   - **Light**: Affects filter brightness (simulated - orange slider)
+   - **Wind**: Controls wind noise level (simulated - orange slider)
+   - **Humidity**: Adds to ambient noise (simulated - orange slider)
+   - **Temperature**: Slightly detunes the drone (simulated - orange slider)
+   - **Master Gain**: Overall volume control (manual - blue slider)
+
+The first four parameters are continuously updated by the simulation worker using slow LFOs and random walk, creating a naturally breathing ambient environment. Only the Master Gain slider remains under manual control.
+
+## Simulation Features
+
+- **Web Worker**: Runs simulation in background thread (no UI blocking)
+- **Slow Evolution**: Parameters change over 1-2 minute timescales
+- **Organic Variation**: Random walk + LFO combination creates natural feel
+- **Audio Scheduling**: 100ms look-ahead prevents audio dropouts
+- **Raw postMessage**: Simple worker communication without external libraries
 
 ## Audio Features
 
@@ -70,7 +88,9 @@ npm run build
 
 ## Acceptance Criteria
 
-✅ Build runs without errors
-✅ Clicking Start changes status to "running"
-✅ Environment parameter sliders audibly affect the ambient bed
+✅ Build runs without errors  
+✅ Clicking Start changes status to "running" and begins simulation  
+✅ Environment parameters evolve automatically via Web Worker  
+✅ The ambient bed subtly breathes over time with no UI jank  
+✅ 100ms look-ahead scheduling prevents audio dropouts  
 ✅ Overall level maintains conservative headroom

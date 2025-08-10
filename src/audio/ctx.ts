@@ -4,7 +4,7 @@
  * and helpers for managing audio state
  */
 
-import { environmentService } from './env';
+import { environmentService } from "./env";
 
 class AudioService {
   private _context: AudioContext | null = null;
@@ -40,16 +40,16 @@ class AudioService {
       if (this.context.state === "suspended") {
         await this.context.resume();
       }
-      
+
       // Initialize environment service if not already loaded
       if (!this._environmentLoaded) {
         await environmentService.initialize(this.context);
         this._environmentLoaded = true;
       }
-      
+
       // Start the environment audio
       environmentService.start();
-      
+
       this._isRunning = true;
     } catch (error) {
       console.error("Failed to start audio context:", error);
@@ -65,7 +65,7 @@ class AudioService {
     try {
       // Stop the environment audio
       environmentService.stop();
-      
+
       if (this.context.state === "running") {
         await this.context.suspend();
       }

@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { audioService } from "./audio/ctx";
 import type { EnvironmentParameters } from "./audio/env";
 import "./App.css";
@@ -6,21 +6,25 @@ import "./App.css";
 function App() {
   const [status, setStatus] = useState<"stopped" | "running">("stopped");
   const [isLoading, setIsLoading] = useState(false);
-  
-  // Environment parameters state
+
+  // Environment parameters state (now updated by worker)
   const [envParams, setEnvParams] = useState({
     light: 0.5,
     wind: 0.3,
     humidity: 0.6,
     temperature: 0.4,
-    masterGain: 0.15
+    masterGain: 0.15,
   });
+
+  // Track simulation status
+  const [isSimulating, setIsSimulating] = useState(false);
 
   const handleStart = useCallback(async () => {
     setIsLoading(true);
     try {
       await audioService.start();
       setStatus("running");
+      setIsSimulating(true);
     } catch (error) {
       console.error("Failed to start audio:", error);
       alert("Failed to start audio context. Please try again.");
@@ -34,6 +38,7 @@ function App() {
     try {
       await audioService.stop();
       setStatus("stopped");
+      setIsSimulating(false);
     } catch (error) {
       console.error("Failed to stop audio:", error);
       alert("Failed to stop audio context. Please try again.");
@@ -43,18 +48,39 @@ function App() {
   }, []);
 
   // Handle environment parameter changes
-  const handleEnvParamChange = useCallback((param: keyof typeof envParams, value: number) => {
-    setEnvParams(prev => {
-      const newParams = { ...prev, [param]: value };
-      
-      // Update the audio worklet if running
-      if (status === "running") {
-        audioService.environment.setParameters({ [param]: value });
-      }
-      
-      return newParams;
-    });
-  }, [status]);
+  const handleEnvParamChange = useCallback(
+    (param: keyof typeof envParams, value: number) => {
+      setEnvParams((prev) => {
+        const newParams = { ...prev, [param]: value };
+
+        // Update the audio worklet if running (only for manual changes, not worker updates)
+        if (status === "running" && param === "masterGain") {
+          audioService.environment.setParameters({ [param]: value });
+        }
+
+        return newParams;
+      });
+    },
+    [status]
+  );
+
+  // Listen for parameter updates from simulation worker
+  useEffect(() => {
+    const handleWorkerUpdate = (
+      params: Omit<EnvironmentParameters, "masterGain">
+    ) => {
+      setEnvParams((prev) => ({
+        ...prev,
+        ...params,
+      }));
+    };
+
+    audioService.environment.addUpdateListener(handleWorkerUpdate);
+
+    return () => {
+      audioService.environment.removeUpdateListener(handleWorkerUpdate);
+    };
+  }, []);
 
   return (
     <div className="app">
@@ -96,10 +122,17 @@ function App() {
 
           {/* Environment Controls */}
           <div className="environment-controls">
-            <h3>Environment Parameters</h3>
+            <h3>
+              Environment Parameters{" "}
+              {isSimulating && (
+                <span className="sim-indicator">(Simulated)</span>
+              )}
+            </h3>
             <div className="param-grid">
               <div className="param-control">
-                <label htmlFor="light">Light: {(envParams.light * 100).toFixed(0)}%</label>
+                <label htmlFor="light">
+                  Light: {(envParams.light * 100).toFixed(0)}%
+                </label>
                 <input
                   id="light"
                   type="range"
@@ -107,13 +140,18 @@ function App() {
                   max="1"
                   step="0.01"
                   value={envParams.light}
-                  onChange={(e) => handleEnvParamChange('light', parseFloat(e.target.value))}
-                  disabled={status === "stopped"}
+                  onChange={(e) =>
+                    handleEnvParamChange("light", parseFloat(e.target.value))
+                  }
+                  disabled={true} // Always disabled - controlled by simulation
+                  className="simulated"
                 />
               </div>
-              
+
               <div className="param-control">
-                <label htmlFor="wind">Wind: {(envParams.wind * 100).toFixed(0)}%</label>
+                <label htmlFor="wind">
+                  Wind: {(envParams.wind * 100).toFixed(0)}%
+                </label>
                 <input
                   id="wind"
                   type="range"
@@ -121,13 +159,18 @@ function App() {
                   max="1"
                   step="0.01"
                   value={envParams.wind}
-                  onChange={(e) => handleEnvParamChange('wind', parseFloat(e.target.value))}
-                  disabled={status === "stopped"}
+                  onChange={(e) =>
+                    handleEnvParamChange("wind", parseFloat(e.target.value))
+                  }
+                  disabled={true} // Always disabled - controlled by simulation
+                  className="simulated"
                 />
               </div>
-              
+
               <div className="param-control">
-                <label htmlFor="humidity">Humidity: {(envParams.humidity * 100).toFixed(0)}%</label>
+                <label htmlFor="humidity">
+                  Humidity: {(envParams.humidity * 100).toFixed(0)}%
+                </label>
                 <input
                   id="humidity"
                   type="range"
@@ -135,13 +178,18 @@ function App() {
                   max="1"
                   step="0.01"
                   value={envParams.humidity}
-                  onChange={(e) => handleEnvParamChange('humidity', parseFloat(e.target.value))}
-                  disabled={status === "stopped"}
+                  onChange={(e) =>
+                    handleEnvParamChange("humidity", parseFloat(e.target.value))
+                  }
+                  disabled={true} // Always disabled - controlled by simulation
+                  className="simulated"
                 />
               </div>
-              
+
               <div className="param-control">
-                <label htmlFor="temperature">Temperature: {(envParams.temperature * 100).toFixed(0)}%</label>
+                <label htmlFor="temperature">
+                  Temperature: {(envParams.temperature * 100).toFixed(0)}%
+                </label>
                 <input
                   id="temperature"
                   type="range"
@@ -149,13 +197,21 @@ function App() {
                   max="1"
                   step="0.01"
                   value={envParams.temperature}
-                  onChange={(e) => handleEnvParamChange('temperature', parseFloat(e.target.value))}
-                  disabled={status === "stopped"}
+                  onChange={(e) =>
+                    handleEnvParamChange(
+                      "temperature",
+                      parseFloat(e.target.value)
+                    )
+                  }
+                  disabled={true} // Always disabled - controlled by simulation
+                  className="simulated"
                 />
               </div>
-              
+
               <div className="param-control">
-                <label htmlFor="masterGain">Master Gain: {(envParams.masterGain * 100).toFixed(0)}%</label>
+                <label htmlFor="masterGain">
+                  Master Gain: {(envParams.masterGain * 100).toFixed(0)}%
+                </label>
                 <input
                   id="masterGain"
                   type="range"
@@ -163,8 +219,14 @@ function App() {
                   max="0.5"
                   step="0.01"
                   value={envParams.masterGain}
-                  onChange={(e) => handleEnvParamChange('masterGain', parseFloat(e.target.value))}
+                  onChange={(e) =>
+                    handleEnvParamChange(
+                      "masterGain",
+                      parseFloat(e.target.value)
+                    )
+                  }
                   disabled={status === "stopped"}
+                  className="manual"
                 />
               </div>
             </div>
