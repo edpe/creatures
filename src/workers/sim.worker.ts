@@ -98,7 +98,11 @@ class PitchField {
       energy: number;
       lastBeatPhase: number;
     }>,
-    currentAudioTime: number
+    currentAudioTime: number,
+    onSpeaking?: (
+      speakerId: number,
+      conversationHistory: Array<{ time: number; agentId: number }>
+    ) => void
   ): NoteEvent[] {
     const notes: NoteEvent[] = [];
 
@@ -116,6 +120,11 @@ class PitchField {
             time: currentAudioTime,
             agentId: agent.id,
           });
+
+          // Call social benefits callback if provided (Step 5)
+          if (onSpeaking) {
+            onSpeaking(agent.id, this.conversationHistory);
+          }
         }
       }
     }
@@ -380,7 +389,18 @@ class KuramotoSimulator {
         energy: agent.energy,
         lastBeatPhase: agent.lastBeatPhase,
       })),
-      currentTime
+      currentTime,
+      // Apply social benefits when agents speak (Step 5)
+      (
+        speakerId: number,
+        conversationHistory: Array<{ time: number; agentId: number }>
+      ) => {
+        this.applySocialBenefitsFromSpeaking(
+          speakerId,
+          conversationHistory,
+          currentTime
+        );
+      }
     );
 
     // Create snapshot
@@ -478,6 +498,108 @@ class KuramotoSimulator {
     if (agent) {
       agent.speakingEnergy = Math.max(0, agent.speakingEnergy - amount);
       agent.lastSocialTime = Date.now() / 1000; // Update social activity time
+    }
+  }
+
+  /**
+   * Apply social energy benefits when an agent speaks (Step 5)
+   * Provides social feeding, validation rewards, and listener benefits
+   */
+  private applySocialBenefitsFromSpeaking(
+    speakerId: number,
+    conversationHistory: Array<{ time: number; agentId: number }>,
+    currentTime: number
+  ): void {
+    const speaker = this.agents.find((a) => a.id === speakerId);
+    if (!speaker) return;
+
+    // 1. Social feeding - energy bonus for speaking near others
+    const nearbyAgents = this.agents.filter((other) => {
+      if (other.id === speakerId) return false;
+      const phaseDiff = Math.abs(speaker.beatPhase - other.beatPhase);
+      const normalizedDiff = Math.min(phaseDiff, 2 * Math.PI - phaseDiff);
+      return normalizedDiff < Math.PI / 3; // Within 60 degrees
+    });
+
+    if (nearbyAgents.length > 0) {
+      const socialFeedingBonus = Math.min(0.1, nearbyAgents.length * 0.02);
+      speaker.speakingEnergy = Math.min(
+        speaker.maxSpeakingEnergy,
+        speaker.speakingEnergy + socialFeedingBonus
+      );
+    }
+
+    // 2. Validation rewards - check if others responded to this speaker recently
+    this.checkForValidationRewards(speaker, conversationHistory, currentTime);
+
+    // 3. Apply benefits to listeners
+    this.applySocialBenefitsToListeners(speaker, nearbyAgents, currentTime);
+
+    // Update speaker's social activity time
+    speaker.lastSocialTime = currentTime;
+  }
+
+  /**
+   * Check for validation rewards when others respond to a speaker (Step 5)
+   */
+  private checkForValidationRewards(
+    speaker: KuramotoAgent,
+    conversationHistory: Array<{ time: number; agentId: number }>,
+    currentTime: number
+  ): void {
+    // Look for recent responses to this speaker (within last 3 seconds)
+    const recentResponses = conversationHistory.filter((entry) => {
+      return (
+        entry.agentId !== speaker.id &&
+        currentTime - entry.time <= 3.0 &&
+        currentTime - entry.time >= 0.1 // Not immediate
+      );
+    });
+
+    if (recentResponses.length > 0) {
+      // Find the responder to give them validation energy
+      const mostRecentResponse = recentResponses[recentResponses.length - 1];
+      const responder = this.agents.find(
+        (a) => a.id === mostRecentResponse.agentId
+      );
+
+      if (responder) {
+        // Validation energy boost based on responder's status
+        const validationBonus = 0.08 * responder.socialStatus;
+        speaker.speakingEnergy = Math.min(
+          speaker.maxSpeakingEnergy,
+          speaker.speakingEnergy + validationBonus
+        );
+
+        // Small status boost for being validated
+        speaker.socialStatus = Math.min(
+          1.0,
+          speaker.socialStatus + validationBonus * 0.5
+        );
+      }
+    }
+  }
+
+  /**
+   * Apply energy benefits to listeners based on speaker's status (Step 5)
+   */
+  private applySocialBenefitsToListeners(
+    speaker: KuramotoAgent,
+    nearbyAgents: KuramotoAgent[],
+    currentTime: number
+  ): void {
+    // Give small energy trickle to nearby listeners based on speaker's status
+    const listenerBonus = 0.02 * speaker.socialStatus;
+
+    for (const listener of nearbyAgents) {
+      // Don't give benefits to agents currently foraging (they're distracted)
+      if (!listener.isForaging) {
+        listener.speakingEnergy = Math.min(
+          listener.maxSpeakingEnergy,
+          listener.speakingEnergy + listenerBonus
+        );
+        listener.lastSocialTime = currentTime;
+      }
     }
   }
 
