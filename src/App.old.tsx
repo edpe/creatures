@@ -1,6 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
 import { audioService } from "./audio/ctx";
-import { ControlPanel } from "./components/ControlPanel";
 import type { EnvironmentParameters } from "./audio/env";
 import "./App.css";
 

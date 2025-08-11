@@ -29,6 +29,23 @@ interface KuramotoAgent {
   size: number; // Agent size 0-1 (affects octave choice)
   energy: number; // Agent energy 0-1 (affects amplitude)
   lastBeatPhase: number; // Previous beat phase for crossing detection
+
+  // Core Energy Properties (Step 1)
+  speakingEnergy: number; // Current speaking energy 0-1
+  maxSpeakingEnergy: number; // Individual capacity 0.7-1.0
+  speakingCost: number; // Energy consumed per note 0.15-0.25
+  rechargeRate: number; // Passive recovery per second 0.08-0.12
+
+  // Territory & Foraging System (Step 2)
+  territoryPhase: number; // Location in environment 0-2π
+  forageEfficiency: number; // Food finding ability 0.5-1.0
+  lastForageTime: number; // Timestamp of last successful forage
+  isForaging: boolean; // Currently searching for food
+
+  // Social Status System (Step 3)
+  socialStatus: number; // Reputation from interactions 0-1
+  statusDecayRate: number; // How fast status fades without interaction
+  lastSocialTime: number; // When last gained/lost status
 }
 
 interface PhaseSnapshot {
@@ -323,12 +340,25 @@ class KuramotoSimulator {
         size: Math.random(), // Random size 0-1
         energy: 0.1 + Math.random() * 0.3, // Lower energy 0.1-0.4 (was 0.3-0.7) - more contemplative
         lastBeatPhase: 0,
+
+        // Steps 1-3: Energy Management, Territory, and Social Status
+        speakingEnergy: 0.7 + Math.random() * 0.3, // Start with 70-100% speaking energy
+        maxSpeakingEnergy: 0.7 + Math.random() * 0.3, // Individual capacity 70-100%
+        speakingCost: 0.15 + Math.random() * 0.1, // Energy per note 15-25%
+        rechargeRate: 0.08 + Math.random() * 0.04, // Recovery 8-12% per second
+        territoryPhase: Math.random() * 2 * Math.PI, // Random territory location
+        forageEfficiency: 0.5 + Math.random() * 0.5, // Food finding ability 50-100%
+        lastForageTime: 0, // Never foraged yet
+        isForaging: false, // Not currently foraging
+        socialStatus: 0.3 + Math.random() * 0.4, // Start with moderate status 30-70%
+        statusDecayRate: 0.05 + Math.random() * 0.03, // Status decay 5-8% per second
+        lastSocialTime: 0, // Never had social interaction yet
       };
       this.agents.push(agent);
     }
 
     console.log(
-      `Initialized ${this.numAgents} Kuramoto agents with PitchField mapping`
+      `Initialized ${this.numAgents} Kuramoto agents with energy, territory & social systems (Steps 1-3)`
     );
   }
 
@@ -337,6 +367,9 @@ class KuramotoSimulator {
   }
 
   update(currentTime: number): { snapshot: PhaseSnapshot; notes: NoteEvent[] } {
+    // Update energy management first (Step 4)
+    this.updateEnergyManagement(currentTime);
+
     // Update phases using Kuramoto model
     this.updatePhases(); // Generate notes from agents that crossed beat boundaries
     const notes = this.pitchField.generateNotes(
@@ -362,6 +395,90 @@ class KuramotoSimulator {
     };
 
     return { snapshot, notes };
+  }
+
+  /**
+   * Update energy management for all agents (Step 4)
+   * Handles recharging, foraging, and status decay
+   */
+  private updateEnergyManagement(currentTime: number): void {
+    for (const agent of this.agents) {
+      // 1. Natural speaking energy recharge
+      agent.speakingEnergy = Math.min(
+        agent.maxSpeakingEnergy,
+        agent.speakingEnergy + agent.rechargeRate * this.dt
+      );
+
+      // 2. Attempt foraging if conditions are right
+      this.attemptForaging(agent, currentTime);
+
+      // 3. Social status decay over time
+      const timeSinceLastSocial = currentTime - agent.lastSocialTime;
+      if (timeSinceLastSocial > 1.0) {
+        // Only decay after 1 second of no interaction
+        agent.socialStatus = Math.max(
+          0,
+          agent.socialStatus - agent.statusDecayRate * this.dt
+        );
+      }
+    }
+  }
+
+  /**
+   * Attempt foraging for an agent (Step 4)
+   */
+  private attemptForaging(agent: KuramotoAgent, currentTime: number): void {
+    // Can't forage while speaking energy is full
+    if (agent.speakingEnergy >= agent.maxSpeakingEnergy * 0.95) {
+      agent.isForaging = false;
+      return;
+    }
+
+    // Foraging cooldown - can't forage too frequently
+    const timeSinceLastForage = currentTime - agent.lastForageTime;
+    if (timeSinceLastForage < 2.0) {
+      return;
+    }
+
+    // Update territory phase (agents move through their territory)
+    agent.territoryPhase += 0.5 * this.dt * 2 * Math.PI; // Moderate territory movement
+
+    // Check if food is available at current territory location
+    const foodAvailability = Math.sin(agent.territoryPhase) * 0.5 + 0.5; // 0-1 based on territory phase
+    const foragingThreshold = 0.7; // Food must be abundant
+
+    if (foodAvailability > foragingThreshold && !agent.isForaging) {
+      // Start foraging
+      agent.isForaging = true;
+
+      // Successful forage - restore energy
+      const energyGain = agent.forageEfficiency * foodAvailability * 0.3;
+      agent.speakingEnergy = Math.min(
+        agent.maxSpeakingEnergy,
+        agent.speakingEnergy + energyGain
+      );
+
+      // Foraging also boosts social status (confident foragers gain respect)
+      agent.socialStatus = Math.min(1.0, agent.socialStatus + energyGain * 0.2);
+      agent.lastForageTime = currentTime;
+      agent.lastSocialTime = currentTime; // Foraging is a social signal
+    } else if (foodAvailability <= 0.3) {
+      // Poor foraging conditions - stop foraging
+      agent.isForaging = false;
+    }
+  }
+
+  /**
+   * Consume speaking energy when an agent speaks (Step 4)
+   * Will be used in Step 6 when integrating with conversation system
+   */
+  // @ts-ignore - Will be used in Step 6
+  private consumeSpeakingEnergy(agentId: number, amount: number): void {
+    const agent = this.agents.find((a) => a.id === agentId);
+    if (agent) {
+      agent.speakingEnergy = Math.max(0, agent.speakingEnergy - amount);
+      agent.lastSocialTime = Date.now() / 1000; // Update social activity time
+    }
   }
 
   private updatePhases(): void {
