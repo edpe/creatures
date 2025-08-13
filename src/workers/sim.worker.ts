@@ -20,6 +20,12 @@ interface NoteEvent {
   timbre: number; // Timbre parameter 0-1
 }
 
+interface RecentNote {
+  degree: number; // Scale degree 0-11
+  time: number; // When it was played
+  agentId: number; // Who played it
+}
+
 interface KuramotoAgent {
   id: number;
   beatPhase: number; // Phase for beat timing
@@ -46,6 +52,10 @@ interface KuramotoAgent {
   socialStatus: number; // Reputation from interactions 0-1
   statusDecayRate: number; // How fast status fades without interaction
   lastSocialTime: number; // When last gained/lost status
+
+  // Emergent Learning System
+  recentNotes: RecentNote[]; // Last 2-3 notes this agent played
+  degreeWeights: number[]; // Learned preferences for scale degrees (12 elements for chromatic)
 }
 
 interface PhaseSnapshot {
@@ -81,12 +91,8 @@ interface WorkerMessage {
  */
 class PitchField {
   private tonic: number = 220; // A3 as tonic in Hz
-  private majorPentatonic: number[] = [0, 2, 4, 7, 9]; // Major pentatonic intervals (day)
-  private minorPentatonic: number[] = [0, 3, 5, 7, 10]; // Minor pentatonic intervals (night)
-  private baseOctave: number = 4; // Reference octave (A4 = 440Hz)
-  private lookAhead: number = 0.1; // 100ms look-ahead for scheduling
-
-  // Environment state for day/night cycle
+  private baseOctave: number = 4; // Reference octave
+  private lookAhead: number = 0.1; // Look-ahead time for note scheduling
   private currentLightLevel: number = 0.5;
 
   // Conversation clustering state
@@ -98,34 +104,35 @@ class PitchField {
   constructor() {}
 
   /**
-   * Update the current light level for day/night pentatonic switching
+   * Update the current light level for day/night tonal center shifts
    */
   updateLightLevel(lightLevel: number): void {
     this.currentLightLevel = lightLevel;
   }
 
   /**
-   * Get the current pentatonic scale based on light level
-   * Day (light > 0.5): Major pentatonic (brighter, more uplifting)
-   * Night (light <= 0.5): Minor pentatonic (darker, more contemplative)
+   * Get chromatic scale (all 12 semitones) - let agents discover their own scales
    */
-  getCurrentPentatonicScale(): number[] {
-    return this.currentLightLevel > 0.5
-      ? this.majorPentatonic
-      : this.minorPentatonic;
+  getChromaticScale(): number[] {
+    return [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]; // All 12 semitones
+  }
+
+  /**
+   * Get tonal center based on day/night - but agents choose their own intervals
+   * Day: A major feel, Night: A minor feel (but not enforced)
+   */
+  getCurrentTonicShift(): number {
+    // Subtle tonal center shift based on light level
+    // Day (light > 0.5): no shift (A = 220Hz base)
+    // Night (light <= 0.5): minor 3rd shift (C = ~261Hz feel)
+    return this.currentLightLevel > 0.5 ? 0 : 3; // 0 or 3 semitones shift
   }
 
   /**
    * Generate notes from agents that cross beat boundaries
    */
   generateNotes(
-    agents: Array<{
-      id: number;
-      beatPhase: number;
-      size: number;
-      energy: number;
-      lastBeatPhase: number;
-    }>,
+    agents: KuramotoAgent[],
     currentAudioTime: number,
     lightLevel: number, // Add light level for day/night pentatonic switching
     onSpeaking?: (
@@ -144,7 +151,11 @@ class PitchField {
     for (const agent of agents) {
       if (this.didCrossBeat(agent.lastBeatPhase, agent.beatPhase)) {
         if (this.shouldEmitNote(agent, agents, currentAudioTime)) {
-          const note = this.createNoteFromAgent(agent, currentAudioTime);
+          const note = this.createNoteFromAgent(
+            agent,
+            currentAudioTime,
+            agents
+          );
           notes.push(note);
 
           // Record this agent's participation in the conversation
@@ -297,35 +308,37 @@ class PitchField {
   }
 
   /**
-   * Create a note event from an agent's properties
+   * Create a note event from an agent's properties using emergent learning
    */
   private createNoteFromAgent(
-    agent: { id: number; size: number; energy: number },
-    currentAudioTime: number
+    agent: KuramotoAgent,
+    currentAudioTime: number,
+    allAgents: KuramotoAgent[]
   ): NoteEvent {
-    // Get current pentatonic scale based on day/night
-    const currentScale = this.getCurrentPentatonicScale();
+    // Use chromatic scale (all 12 semitones) - let agents discover harmony
+    const currentScale = this.getChromaticScale();
 
-    // Pick a pentatonic degree (uniform distribution)
-    const degreeIndex = Math.floor(Math.random() * currentScale.length);
+    // Select degree using learned weights + stepwise motion bias + innovation
+    const degreeIndex = this.selectDegreeWithLearning(
+      agent,
+      currentScale,
+      allAgents,
+      currentAudioTime
+    );
     const degree = currentScale[degreeIndex];
 
-    // Log the scale selection for debugging
-    const scaleType = this.currentLightLevel > 0.5 ? "major" : "minor";
-    console.log(
-      `[WORKER] Scale: ${scaleType} pentatonic ${JSON.stringify(
-        currentScale
-      )}, selected degree ${degree} (index ${degreeIndex})`
-    );
+    // Apply subtle tonal center shift based on day/night
+    const tonicShift = this.getCurrentTonicShift();
+    const adjustedDegree = (degree + tonicShift) % 12;
 
     // Map agent size to octave band with small random walk
     const octave = this.getOctaveFromSize(agent.size);
 
-    // Calculate frequency: tonic * 2^(octave-4) * 2^(degree/12)
+    // Calculate frequency: tonic * 2^(octave-4) * 2^(adjustedDegree/12)
     const baseFrequency =
       this.tonic *
       Math.pow(2, octave - this.baseOctave) *
-      Math.pow(2, degree / 12);
+      Math.pow(2, adjustedDegree / 12);
 
     // Add subtle microtonal variation (within 1/8 tone = ~25 cents)
     // 1/8 tone = 1/96 octave, so multiply by 2^(±1/96)
@@ -338,9 +351,19 @@ class PitchField {
     // Extremely gentle amplitudes - barely-audible whispers
     const amplitude = agent.energy * 0.06; // Max 6% (was 12%)
 
+    // Create note record for learning (use original degree before tonic shift)
+    const noteRecord: RecentNote = {
+      degree: degree,
+      time: currentAudioTime,
+      agentId: agent.id,
+    };
+
+    // Update agent's learning state
+    this.updateAgentLearning(agent, noteRecord, allAgents, currentAudioTime);
+
     // Log any notes being generated to debug creature activity
-    const scaleName =
-      this.currentLightLevel > 0.5 ? "major pentatonic" : "minor pentatonic";
+    const modeType =
+      this.currentLightLevel > 0.5 ? "day (A center)" : "night (C center)";
     const noteNames = [
       "C",
       "C#",
@@ -355,12 +378,12 @@ class PitchField {
       "A#",
       "B",
     ];
-    const noteName = noteNames[degree % 12];
+    const noteName = noteNames[adjustedDegree % 12];
 
     console.log(
       `[WORKER] Generated note: ${frequency.toFixed(
         2
-      )}Hz (${noteName}${octave}, degree=${degree}, ${scaleName}) from agent ${
+      )}Hz (${noteName}${octave}, degree=${adjustedDegree}, ${modeType}) from agent ${
         agent.id
       } at time ${currentAudioTime}, amp=${amplitude.toFixed(3)}`
     );
@@ -393,6 +416,129 @@ class PitchField {
     } else {
       // Large agents: octaves 3-4 (low)
       return 3.5 + randomWalk;
+    }
+  }
+
+  /**
+   * Select scale degree using learned weights, stepwise motion bias, and innovation
+   */
+  private selectDegreeWithLearning(
+    agent: KuramotoAgent,
+    currentScale: number[],
+    _allAgents: KuramotoAgent[], // Used in future extensions
+    _currentTime: number // Used in future extensions
+  ): number {
+    // 1% innovation chance - pick completely random degree
+    if (Math.random() < 0.01) {
+      return Math.floor(Math.random() * currentScale.length);
+    }
+
+    // Calculate weights for each degree index
+    const weights = [...agent.degreeWeights];
+
+    // Apply stepwise motion bias (70% bias toward ±1-2 scale steps)
+    if (agent.recentNotes.length > 0) {
+      const lastNote = agent.recentNotes[agent.recentNotes.length - 1];
+      const lastDegreeIndex = currentScale.indexOf(lastNote.degree);
+
+      if (lastDegreeIndex !== -1) {
+        // Boost nearby degrees with 70% bias
+        for (let i = 0; i < currentScale.length; i++) {
+          const distance = Math.abs(i - lastDegreeIndex);
+          if (distance === 1 || distance === 2) {
+            weights[i] *= 1.7; // 70% boost for stepwise motion
+          } else if (distance > 2) {
+            weights[i] *= 0.3; // 30% chance for leaps
+          }
+        }
+      }
+    }
+
+    // Normalize weights
+    const totalWeight = weights.reduce((sum, w) => sum + w, 0);
+    const normalizedWeights = weights.map((w) => w / totalWeight);
+
+    // Weighted random selection
+    const random = Math.random();
+    let cumulative = 0;
+    for (let i = 0; i < normalizedWeights.length; i++) {
+      cumulative += normalizedWeights[i];
+      if (random <= cumulative) {
+        return i;
+      }
+    }
+
+    // Fallback
+    return Math.floor(Math.random() * currentScale.length);
+  }
+
+  /**
+   * Update agent's learning state after playing a note
+   */
+  private updateAgentLearning(
+    agent: KuramotoAgent,
+    noteRecord: RecentNote,
+    allAgents: KuramotoAgent[],
+    currentTime: number
+  ): void {
+    // Add to recent notes (keep last 2-3)
+    agent.recentNotes.push(noteRecord);
+    if (agent.recentNotes.length > 3) {
+      agent.recentNotes.shift();
+    }
+
+    // Sample neighbor notes within 300ms window
+    const neighborNotes: RecentNote[] = [];
+    for (const otherAgent of allAgents) {
+      if (otherAgent.id === agent.id) continue;
+
+      for (const note of otherAgent.recentNotes) {
+        const timeDiff = Math.abs(note.time - currentTime);
+        if (timeDiff <= 0.3) {
+          // 300ms window
+          neighborNotes.push(note);
+        }
+      }
+    }
+
+    // Analyze harmonic intervals and adjust weights
+    const currentScale = this.getChromaticScale();
+    const currentDegreeIndex = currentScale.indexOf(noteRecord.degree);
+
+    if (currentDegreeIndex !== -1 && neighborNotes.length > 0) {
+      for (const neighborNote of neighborNotes) {
+        const interval = Math.abs(noteRecord.degree - neighborNote.degree) % 12;
+
+        // Pleasant intervals: 3,4,5,7,9,12 semitones (minor 3rd, major 3rd, perfect 4th, perfect 5th, major 6th, octave)
+        if ([3, 4, 5, 7, 9, 0].includes(interval)) {
+          // Reinforce this degree (+0.02 weight)
+          agent.degreeWeights[currentDegreeIndex] += 0.02;
+        }
+
+        // Penalty for crowded minor seconds (1 semitone) if local density is high
+        if (interval === 1 && neighborNotes.length >= 2) {
+          // Slight penalty (-0.01) for crowded minor seconds
+          agent.degreeWeights[currentDegreeIndex] -= 0.01;
+        }
+      }
+    }
+
+    // Normalize weights to prevent runaway values
+    const totalWeight = agent.degreeWeights.reduce((sum, w) => sum + w, 0);
+    if (totalWeight > 0) {
+      agent.degreeWeights = agent.degreeWeights.map((w) =>
+        Math.max(0.1, (w / totalWeight) * 12)
+      ); // Keep weights between 0.1-2.0 for 12 degrees
+    }
+
+    // Occasional logging of learning state
+    if (Math.random() < 0.05) {
+      // 5% chance to log
+      console.log(
+        `[LEARNING] Agent ${agent.id} weights: [${agent.degreeWeights
+          .map((w) => w.toFixed(2))
+          .join(", ")}], recent notes: ${agent.recentNotes.length}`
+      );
     }
   }
 }
@@ -435,12 +581,18 @@ class KuramotoSimulator {
         socialStatus: 0.3 + Math.random() * 0.4, // Start with moderate status 30-70%
         statusDecayRate: 0.05 + Math.random() * 0.03, // Status decay 5-8% per second
         lastSocialTime: 0, // Never had social interaction yet
+
+        // Emergent Learning System - start with neutral preferences for all 12 chromatic degrees
+        recentNotes: [], // No recent notes yet
+        degreeWeights: [
+          1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+        ], // Equal weight for all 12 chromatic degrees
       };
       this.agents.push(agent);
     }
 
     console.log(
-      `Initialized ${this.numAgents} Kuramoto agents with energy, territory & social systems (Steps 1-3)`
+      `Initialized ${this.numAgents} Kuramoto agents with energy, territory, social systems & emergent learning`
     );
   }
 
@@ -458,13 +610,7 @@ class KuramotoSimulator {
     // Update phases using Kuramoto model
     this.updatePhases(); // Generate notes from agents that crossed beat boundaries
     const notes = this.pitchField.generateNotes(
-      this.agents.map((agent) => ({
-        id: agent.id,
-        beatPhase: agent.beatPhase,
-        size: agent.size,
-        energy: agent.energy,
-        lastBeatPhase: agent.lastBeatPhase,
-      })),
+      this.agents, // Pass full agents array for learning system
       currentTime,
       lightLevel || 0.5, // Default to neutral light level if not provided
       // Apply social benefits when agents speak (Step 5)
