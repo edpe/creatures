@@ -48,6 +48,7 @@ interface WorkerMessage {
     | "requestAudioTime"
     | "audioTime";
   data?: Omit<EnvironmentParameters, "masterGain"> | PhaseSnapshot | NoteBatch;
+  notes?: NoteEvent[]; // Add notes field to match worker interface
   audioTime?: number; // For audioTime messages
 }
 
@@ -153,9 +154,12 @@ class EnvironmentService {
 
       // Could emit phase events here if needed for UI
       // For now, just store the snapshot for future note scheduling
-    } else if (message.type === "notes" && message.data) {
-      // Note batch from agent beat crossings
-      const noteBatch = message.data as NoteBatch;
+    } else if (message.type === "notes" && message.notes) {
+      // Note batch from agent beat crossings - worker sends notes in message.notes field
+      const noteBatch: NoteBatch = {
+        type: "notes",
+        events: message.notes,
+      };
       this.forwardNotesToCreatures(noteBatch);
     } else if (message.type === "requestAudioTime") {
       // Worker is requesting current audio context time
@@ -257,6 +261,19 @@ class EnvironmentService {
       this.simWorker.postMessage({ type: "stop" });
       this.isSimulationRunning = false;
       console.log("Environment simulation stopped");
+    }
+  }
+
+  /**
+   * Send parameter change to the simulation worker
+   */
+  sendParameterToWorker(parameterName: string, value: number): void {
+    if (this.simWorker) {
+      this.simWorker.postMessage({
+        type: "setParameter",
+        parameterName,
+        parameterValue: value,
+      });
     }
   }
 

@@ -123,6 +123,23 @@ class CreaturesService {
   }
 
   /**
+   * Set audio effect parameter in the worklet
+   */
+  setEffectParameter(param: string, value: number): void {
+    if (!this.workletNode) {
+      console.warn("Cannot set effect parameter: worklet not loaded");
+      return;
+    }
+
+    // Send parameter update to the worklet
+    this.workletNode.port.postMessage({
+      type: "setEffectParameter",
+      parameterName: param,
+      parameterValue: value,
+    });
+  }
+
+  /**
    * Test method: play a single note immediately for debugging
    */
   testNote(): void {
@@ -132,7 +149,7 @@ class CreaturesService {
     }
 
     const currentTime = this.audioContext.currentTime;
-    console.log(`Testing note at audio time: ${currentTime}`);
+    console.log(`[TEST NOTE] Starting test note at audio time: ${currentTime}`);
 
     this.playNote(
       currentTime + 0.1, // Start in 100ms
@@ -141,6 +158,8 @@ class CreaturesService {
       0.5, // Medium amplitude
       0.3 // Medium timbre (sine wave)
     );
+
+    console.log(`[TEST NOTE] Test note scheduled for ${currentTime + 0.1}`);
   }
 
   /**

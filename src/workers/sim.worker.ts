@@ -62,13 +62,18 @@ interface WorkerMessage {
   type:
     | "start"
     | "stop"
-    | "update"
-    | "phase"
+    | "audioTime"
+    | "envUpdate"
+    | "phases"
     | "notes"
-    | "requestAudioTime"
-    | "audioTime";
-  data?: any;
+    | "setParameter"
+    | "requestAudioTime";
+  phases?: PhaseSnapshot;
+  notes?: NoteEvent[];
+  environment?: EnvironmentState;
   audioTime?: number; // For audioTime messages
+  parameterName?: string; // For setParameter messages
+  parameterValue?: number; // For setParameter messages
 }
 
 /**
@@ -76,17 +81,40 @@ interface WorkerMessage {
  */
 class PitchField {
   private tonic: number = 220; // A3 as tonic in Hz
-  private pentatonicDegrees: number[] = [0, 2, 4, 7, 9]; // Major pentatonic intervals
+  private majorPentatonic: number[] = [0, 2, 4, 7, 9]; // Major pentatonic intervals (day)
+  private minorPentatonic: number[] = [0, 3, 5, 7, 10]; // Minor pentatonic intervals (night)
   private baseOctave: number = 4; // Reference octave (A4 = 440Hz)
   private lookAhead: number = 0.1; // 100ms look-ahead for scheduling
+
+  // Environment state for day/night cycle
+  private currentLightLevel: number = 0.5;
 
   // Conversation clustering state
   private conversationHistory: Array<{ time: number; agentId: number }> = [];
   private lastConversationEnd: number = 0;
-  private conversationCooldown: number = 6.0; // 6 seconds of silence between conversations
+  private conversationCooldown: number = 15.0; // 15 seconds of silence between conversations (was 6)
   private responseWindows = [2.0, 1.5, 1.0, 0.8]; // Decreasing response windows
 
   constructor() {}
+
+  /**
+   * Update the current light level for day/night pentatonic switching
+   */
+  updateLightLevel(lightLevel: number): void {
+    this.currentLightLevel = lightLevel;
+  }
+
+  /**
+   * Get the current pentatonic scale based on light level
+   * Day (light > 0.5): Major pentatonic (brighter, more uplifting)
+   * Night (light <= 0.5): Minor pentatonic (darker, more contemplative)
+   */
+  getCurrentPentatonicScale(): number[] {
+    return this.currentLightLevel > 0.5
+      ? this.majorPentatonic
+      : this.minorPentatonic;
+  }
+
   /**
    * Generate notes from agents that cross beat boundaries
    */
@@ -99,12 +127,16 @@ class PitchField {
       lastBeatPhase: number;
     }>,
     currentAudioTime: number,
+    lightLevel: number, // Add light level for day/night pentatonic switching
     onSpeaking?: (
       speakerId: number,
       conversationHistory: Array<{ time: number; agentId: number }>
     ) => void
   ): NoteEvent[] {
     const notes: NoteEvent[] = [];
+
+    // Update pitch field with current light level for day/night scale switching
+    this.updateLightLevel(lightLevel);
 
     // Clean up old conversation history
     this.cleanupOldConversation(currentAudioTime);
@@ -226,7 +258,7 @@ class PitchField {
 
     // First speaker: base probability from agent energy
     if (conversationPosition === 0) {
-      const baseProbability = agent.energy * 0.08; // 8% base chance (reduced)
+      const baseProbability = agent.energy * 0.02; // 2% base chance (much reduced from 8%)
       return Math.random() < baseProbability;
     }
 
@@ -241,7 +273,7 @@ class PitchField {
         );
         const lastSpeaker = recentHistory[recentHistory.length - 1];
 
-        let probability = agent.energy * 0.3; // Base response probability
+        let probability = agent.energy * 0.15; // Reduced response probability (was 0.3)
 
         if (lastSpeaker) {
           const agentCount = agents.length;
@@ -271,26 +303,67 @@ class PitchField {
     agent: { id: number; size: number; energy: number },
     currentAudioTime: number
   ): NoteEvent {
+    // Get current pentatonic scale based on day/night
+    const currentScale = this.getCurrentPentatonicScale();
+
     // Pick a pentatonic degree (uniform distribution)
-    const degreeIndex = Math.floor(
-      Math.random() * this.pentatonicDegrees.length
+    const degreeIndex = Math.floor(Math.random() * currentScale.length);
+    const degree = currentScale[degreeIndex];
+
+    // Log the scale selection for debugging
+    const scaleType = this.currentLightLevel > 0.5 ? "major" : "minor";
+    console.log(
+      `[WORKER] Scale: ${scaleType} pentatonic ${JSON.stringify(
+        currentScale
+      )}, selected degree ${degree} (index ${degreeIndex})`
     );
-    const degree = this.pentatonicDegrees[degreeIndex];
 
     // Map agent size to octave band with small random walk
     const octave = this.getOctaveFromSize(agent.size);
 
     // Calculate frequency: tonic * 2^(octave-4) * 2^(degree/12)
-    const frequency =
+    const baseFrequency =
       this.tonic *
       Math.pow(2, octave - this.baseOctave) *
       Math.pow(2, degree / 12);
 
-    // Longer, more contemplative durations (0.8-3.2 seconds)
-    const duration = 0.8 + Math.random() * 2.4;
+    // Add subtle microtonal variation (within 1/8 tone = ~25 cents)
+    // 1/8 tone = 1/96 octave, so multiply by 2^(±1/96)
+    const microtonalVariation = (Math.random() - 0.5) * (2 / 96); // ±1/96 octave
+    const frequency = baseFrequency * Math.pow(2, microtonalVariation);
 
-    // Much gentler amplitudes - whisper-like
-    const amplitude = agent.energy * 0.12; // Max 12% (was 40%)
+    // Very long, deeply contemplative durations (1.5-6 seconds)
+    const duration = 1.5 + Math.random() * 4.5;
+
+    // Extremely gentle amplitudes - barely-audible whispers
+    const amplitude = agent.energy * 0.06; // Max 6% (was 12%)
+
+    // Log any notes being generated to debug creature activity
+    const scaleName =
+      this.currentLightLevel > 0.5 ? "major pentatonic" : "minor pentatonic";
+    const noteNames = [
+      "C",
+      "C#",
+      "D",
+      "D#",
+      "E",
+      "F",
+      "F#",
+      "G",
+      "G#",
+      "A",
+      "A#",
+      "B",
+    ];
+    const noteName = noteNames[degree % 12];
+
+    console.log(
+      `[WORKER] Generated note: ${frequency.toFixed(
+        2
+      )}Hz (${noteName}${octave}, degree=${degree}, ${scaleName}) from agent ${
+        agent.id
+      } at time ${currentAudioTime}, amp=${amplitude.toFixed(3)}`
+    );
 
     // Softer, more mellow timbres - less harsh FM
     const timbre = 0.1 + Math.random() * 0.3; // 0.1-0.4 range (was 0.3-0.7)
@@ -308,8 +381,8 @@ class PitchField {
    * Map agent size to octave band: small→high, medium→mid, large→low
    */
   private getOctaveFromSize(size: number): number {
-    // Add small random walk (±0.5 octave)
-    const randomWalk = (Math.random() - 0.5) * 1.0;
+    // Very small random walk (±0.1 octave) to keep octaves clean
+    const randomWalk = (Math.random() - 0.5) * 0.2;
 
     if (size < 0.33) {
       // Small agents: octaves 5-6 (high)
@@ -375,7 +448,10 @@ class KuramotoSimulator {
     console.log(`Kuramoto simulation started at audio time ${audioStartTime}`);
   }
 
-  update(currentTime: number): { snapshot: PhaseSnapshot; notes: NoteEvent[] } {
+  update(
+    currentTime: number,
+    lightLevel?: number
+  ): { snapshot: PhaseSnapshot; notes: NoteEvent[] } {
     // Update energy management first (Step 4)
     this.updateEnergyManagement(currentTime);
 
@@ -390,6 +466,7 @@ class KuramotoSimulator {
         lastBeatPhase: agent.lastBeatPhase,
       })),
       currentTime,
+      lightLevel || 0.5, // Default to neutral light level if not provided
       // Apply social benefits when agents speak (Step 5)
       (
         speakerId: number,
@@ -795,8 +872,8 @@ class EnvironmentSimulator {
 
   private postEnvironmentUpdate(): void {
     const message: WorkerMessage = {
-      type: "update",
-      data: { ...this.state },
+      type: "envUpdate",
+      environment: { ...this.state },
     };
 
     self.postMessage(message);
@@ -810,12 +887,13 @@ class EnvironmentSimulator {
   }
 
   updatePhasesWithAudioTime(currentAudioTime: number): void {
-    const result = this.kuramotoSim.update(currentAudioTime);
+    // Pass current light level to the simulator for day/night pentatonic switching
+    const result = this.kuramotoSim.update(currentAudioTime, this.state.light);
 
     // Post phase snapshot
     const phaseMessage: WorkerMessage = {
-      type: "phase",
-      data: result.snapshot,
+      type: "phases",
+      phases: result.snapshot,
     };
     self.postMessage(phaseMessage);
 
@@ -823,10 +901,7 @@ class EnvironmentSimulator {
     if (result.notes.length > 0) {
       const notesMessage: WorkerMessage = {
         type: "notes",
-        data: {
-          type: "notes",
-          events: result.notes,
-        },
+        notes: result.notes,
       };
       self.postMessage(notesMessage);
     }
@@ -879,10 +954,29 @@ self.addEventListener("message", (event: MessageEvent<WorkerMessage>) => {
       }
       break;
 
+    case "setParameter":
+      if (
+        event.data.parameterName !== undefined &&
+        event.data.parameterValue !== undefined
+      ) {
+        handleParameterChange(
+          event.data.parameterName,
+          event.data.parameterValue
+        );
+      }
+      break;
+
     default:
       console.warn("Unknown message type:", type);
   }
 });
+
+// Handle parameter changes for creature behavior
+function handleParameterChange(parameterName: string, value: number): void {
+  // TODO: Update creature behavior parameters dynamically
+  console.log(`Parameter ${parameterName} changed to ${value}`);
+  // This will be expanded to actually modify the behavior parameters
+}
 
 // Export for TypeScript (though not used in worker context)
 export {};

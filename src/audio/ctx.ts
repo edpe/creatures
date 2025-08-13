@@ -177,10 +177,25 @@ class AudioService {
           environmentService.setMasterGain(value);
           break;
         case "couplingStrength":
-          // TODO: Send to worker via message
-          break;
         case "tempoBias":
-          // TODO: Send to worker via message
+        case "speakingProbability":
+        case "conversationCooldown":
+        case "responseProbability":
+        case "minNoteDuration":
+        case "maxNoteDuration":
+        case "noteAmplitude":
+        case "octaveVariation":
+        case "microtonalVariation":
+          // Send creature behavior parameters to worker via environment service
+          environmentService.sendParameterToWorker(param, value);
+          break;
+        case "delayTime":
+        case "delayFeedback":
+        case "delayMix":
+        case "reverbDecay":
+        case "reverbMix":
+          // Send audio effects parameters to worklet
+          creaturesService.setEffectParameter(param, value);
           break;
         // agentCount and tonicMidi require restart
       }

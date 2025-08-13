@@ -43,9 +43,10 @@ class Voice {
   }
 
   noteOn(startFrame, freq, dur, amp, timbre) {
+    console.log(`[VOICE ${this.id}] noteOn: freq=${freq}Hz, dur=${dur} frames, startFrame=${startFrame}, endFrame=${startFrame + dur}`);
     this.state = VOICE_ATTACK;
     this.freq = freq;
-    this.amp = amp * 2.0; // Increase volume significantly for debugging
+    this.amp = amp * 2.0; // Back to original amplification
     this.timbre = Math.max(0, Math.min(1, timbre));
     this.startFrame = startFrame;
     this.endFrame = startFrame + dur;
@@ -72,6 +73,7 @@ class Voice {
   noteOff() {
     if (this.state === VOICE_IDLE) return;
     
+    console.log(`[VOICE ${this.id}] noteOff called, transitioning to release`);
     this.state = VOICE_RELEASE;
     this.envStage = 'release';
     this.envTimer = 0;
@@ -82,6 +84,7 @@ class Voice {
     
     // Check if note should end (but allow release to finish naturally)
     if (currentFrame >= this.endFrame && this.envStage !== 'release') {
+      console.log(`[VOICE ${this.id}] Note ending at frame ${currentFrame}, endFrame was ${this.endFrame}`);
       this.noteOff();
     }
     
@@ -90,7 +93,8 @@ class Voice {
     
     // Generate audio if envelope is active
     if (this.envLevel <= 0.001) {
-      if (this.envStage === 'release') {
+      if (this.envStage === 'release' || this.envStage === 'idle') {
+        console.log(`[VOICE ${this.id}] Voice going idle at frame ${currentFrame} after release`);
         this.state = VOICE_IDLE;
         this.envStage = 'idle';
       }
@@ -194,6 +198,9 @@ class CreatureProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
     
+    // Store sample rate for proper timing calculations
+    this.sampleRate = globalThis.sampleRate || 48000;
+    
     // Voice pool
     this.voices = [];
     this.numVoices = 32;
@@ -212,10 +219,11 @@ class CreatureProcessor extends AudioWorkletProcessor {
     // Reverb state (simple comb filter + allpass)
     this.reverbDelayLines = [];
     this.reverbAllpass = [];
+    this.reverbMix = 0.15; // Default reverb mix level
     this.initializeReverb();
     
     // Delay effect state
-    this.delayBuffer = new Float32Array(Math.round(48000 * 0.25)); // 250ms max delay
+    this.delayBuffer = new Float32Array(Math.round(this.sampleRate * 5.0)); // 5 second max delay
     this.delayBuffer.fill(0); // Initialize to silence
     this.delayWritePos = 0;
     this.delayTime = 0.15; // 150ms delay
@@ -237,7 +245,7 @@ class CreatureProcessor extends AudioWorkletProcessor {
     
     // Initialize comb filters
     for (let i = 0; i < combDelayTimes.length; i++) {
-      const delayLength = Math.round(48000 * combDelayTimes[i]);
+      const delayLength = Math.round(this.sampleRate * combDelayTimes[i]);
       const buffer = new Float32Array(delayLength);
       buffer.fill(0); // Initialize to silence
       this.reverbDelayLines.push({
@@ -251,7 +259,7 @@ class CreatureProcessor extends AudioWorkletProcessor {
     
     // Initialize allpass filters
     for (let i = 0; i < allpassDelayTimes.length; i++) {
-      const delayLength = Math.round(48000 * allpassDelayTimes[i]);
+      const delayLength = Math.round(this.sampleRate * allpassDelayTimes[i]);
       const buffer = new Float32Array(delayLength);
       buffer.fill(0); // Initialize to silence
       this.reverbAllpass.push({
@@ -266,8 +274,10 @@ class CreatureProcessor extends AudioWorkletProcessor {
     if (data.type === 'notes' && data.events) {
       // Add events to queue, converting time to frames
       for (const event of data.events) {
-        const startFrame = Math.round(event.startTime * sampleRate);
-        const durFrames = Math.round(event.dur * sampleRate);
+        const startFrame = Math.round(event.startTime * this.sampleRate);
+        const durFrames = Math.round(event.dur * this.sampleRate);
+        
+        console.log(`[WORKLET] Received creature note: ${event.freq}Hz, startFrame=${startFrame}, amp=${event.amp}`);
         
         this.noteEvents.push({
           startFrame,
@@ -281,7 +291,10 @@ class CreatureProcessor extends AudioWorkletProcessor {
       // Sort by start time
       this.noteEvents.sort((a, b) => a.startFrame - b.startFrame);
       
-      console.log(`Queued ${data.events.length} note events from agents`);
+      console.log(`[WORKLET] Queued ${data.events.length} note events from agents`);
+    } else if (data.type === 'setEffectParameter') {
+      // Handle effect parameter changes
+      this.setEffectParameter(data.parameterName, data.parameterValue);
     }
   }
 
@@ -315,7 +328,7 @@ class CreatureProcessor extends AudioWorkletProcessor {
       const reverbSample = this.processReverb(drySample + delayedSample * 0.3);
       
       // Mix dry, delay, and reverb
-      const wetSample = drySample * 1.0 + delayedSample * this.delayMix + reverbSample * 0.6;
+      const wetSample = drySample + delayedSample * this.delayMix + reverbSample * this.reverbMix;
       
       // Final safety check and gentle limiting - increase overall output
       let finalSample = Math.tanh(wetSample * 1.5) * 0.8;
@@ -335,7 +348,7 @@ class CreatureProcessor extends AudioWorkletProcessor {
     // Safety check
     if (!isFinite(input)) input = 0;
     
-    const delaySamples = Math.round(this.delayTime * 48000);
+    const delaySamples = Math.round(this.delayTime * this.sampleRate);
     const readPos = (this.delayWritePos - delaySamples + this.delayBuffer.length) % this.delayBuffer.length;
     
     const delayedSample = this.delayBuffer[readPos] || 0;
@@ -395,6 +408,8 @@ class CreatureProcessor extends AudioWorkletProcessor {
   }
 
   triggerNote(event) {
+    console.log(`[WORKLET] Triggering note: freq=${event.freq}Hz, dur=${event.dur} frames, startFrame=${event.startFrame}`);
+    
     // Find an idle voice
     let voice = null;
     for (const v of this.voices) {
@@ -425,6 +440,36 @@ class CreatureProcessor extends AudioWorkletProcessor {
       );
     } else {
       console.warn('CreatureProcessor: No voice available for note');
+    }
+  }
+
+  setEffectParameter(parameterName, value) {
+    switch (parameterName) {
+      case 'delayTime':
+        this.delayTime = Math.max(0.01, Math.min(5.0, value)); // Up to 5 seconds
+        console.log(`Delay time set to ${this.delayTime.toFixed(3)}s`);
+        break;
+      case 'delayFeedback':
+        this.delayFeedback = Math.max(0, Math.min(0.99, value)); // Up to 99% feedback
+        console.log(`Delay feedback set to ${(this.delayFeedback * 100).toFixed(0)}%`);
+        break;
+      case 'delayMix':
+        this.delayMix = Math.max(0, Math.min(1.0, value)); // Up to 100% wet
+        console.log(`Delay mix set to ${(this.delayMix * 100).toFixed(0)}%`);
+        break;
+      case 'reverbDecay':
+        // Update reverb feedback for all comb filters
+        for (const comb of this.reverbDelayLines) {
+          comb.feedback = Math.max(0.1, Math.min(0.99, value)); // Up to 99% decay
+        }
+        console.log(`Reverb decay set to ${(value * 100).toFixed(0)}%`);
+        break;
+      case 'reverbMix':
+        this.reverbMix = Math.max(0, Math.min(1.0, value)); // Up to 100% wet
+        console.log(`Reverb mix set to ${(this.reverbMix * 100).toFixed(0)}%`);
+        break;
+      default:
+        console.warn(`Unknown effect parameter: ${parameterName}`);
     }
   }
 }

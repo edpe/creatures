@@ -33,6 +33,23 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   const [tempoBias, setTempoBias] = useState(1.0);
   const [couplingStrength, setCouplingStrength] = useState(0.15);
 
+  // Creature behavior parameters
+  const [speakingProbability, setSpeakingProbability] = useState(0.05); // 5% base chance (0.05 = 5%)
+  const [conversationCooldown, setConversationCooldown] = useState(8); // 8 seconds
+  const [responseProbability, setResponseProbability] = useState(0.25); // 25% response chance (0.25 = 25%)
+  const [minNoteDuration, setMinNoteDuration] = useState(1.5); // 1.5 seconds
+  const [maxNoteDuration, setMaxNoteDuration] = useState(6.0); // 6.0 seconds
+  const [noteAmplitude, setNoteAmplitude] = useState(0.15); // 15% max amplitude (0.15 = 15%)
+  const [octaveVariation, setOctaveVariation] = useState(0.1); // ±0.1 octave
+  const [microtonalVariation, setMicrotonalVariation] = useState(25); // ±25 cents
+
+  // Audio effects parameters
+  const [delayTime, setDelayTime] = useState(0.15); // 150ms delay
+  const [delayFeedback, setDelayFeedback] = useState(0.25); // 25% feedback
+  const [delayMix, setDelayMix] = useState(0.2); // 20% wet signal
+  const [reverbDecay, setReverbDecay] = useState(0.5); // 50% decay
+  const [reverbMix, setReverbMix] = useState(0.15); // 15% wet signal
+
   // Audio load monitoring
   useEffect(() => {
     let loadInterval: number;
@@ -138,6 +155,112 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
     (value: number) => {
       setCouplingStrength(value);
       onParameterChange?.("couplingStrength", value);
+    },
+    [onParameterChange]
+  );
+
+  // Creature behavior parameter handlers
+  const handleSpeakingProbabilityChange = useCallback(
+    (value: number) => {
+      setSpeakingProbability(value);
+      onParameterChange?.("speakingProbability", value);
+    },
+    [onParameterChange]
+  );
+
+  const handleConversationCooldownChange = useCallback(
+    (value: number) => {
+      setConversationCooldown(value);
+      onParameterChange?.("conversationCooldown", value);
+    },
+    [onParameterChange]
+  );
+
+  const handleResponseProbabilityChange = useCallback(
+    (value: number) => {
+      setResponseProbability(value);
+      onParameterChange?.("responseProbability", value);
+    },
+    [onParameterChange]
+  );
+
+  const handleMinNoteDurationChange = useCallback(
+    (value: number) => {
+      setMinNoteDuration(value);
+      onParameterChange?.("minNoteDuration", value);
+    },
+    [onParameterChange]
+  );
+
+  const handleMaxNoteDurationChange = useCallback(
+    (value: number) => {
+      setMaxNoteDuration(value);
+      onParameterChange?.("maxNoteDuration", value);
+    },
+    [onParameterChange]
+  );
+
+  const handleNoteAmplitudeChange = useCallback(
+    (value: number) => {
+      setNoteAmplitude(value);
+      onParameterChange?.("noteAmplitude", value);
+    },
+    [onParameterChange]
+  );
+
+  const handleOctaveVariationChange = useCallback(
+    (value: number) => {
+      setOctaveVariation(value);
+      onParameterChange?.("octaveVariation", value);
+    },
+    [onParameterChange]
+  );
+
+  const handleMicrotonalVariationChange = useCallback(
+    (value: number) => {
+      setMicrotonalVariation(value);
+      onParameterChange?.("microtonalVariation", value);
+    },
+    [onParameterChange]
+  );
+
+  // Audio effects parameter handlers
+  const handleDelayTimeChange = useCallback(
+    (value: number) => {
+      setDelayTime(value);
+      onParameterChange?.("delayTime", value);
+    },
+    [onParameterChange]
+  );
+
+  const handleDelayFeedbackChange = useCallback(
+    (value: number) => {
+      setDelayFeedback(value);
+      onParameterChange?.("delayFeedback", value);
+    },
+    [onParameterChange]
+  );
+
+  const handleDelayMixChange = useCallback(
+    (value: number) => {
+      setDelayMix(value);
+      onParameterChange?.("delayMix", value);
+    },
+    [onParameterChange]
+  );
+
+  const handleReverbDecayChange = useCallback(
+    (value: number) => {
+      setReverbDecay(value);
+      onParameterChange?.("reverbDecay", value);
+    },
+    [onParameterChange]
+  );
+
+  const handleReverbMixChange = useCallback(
+    (value: number) => {
+      setReverbMix(value);
+      onParameterChange?.("reverbMix", value);
     },
     [onParameterChange]
   );
@@ -260,6 +383,186 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
             }
           />
         </div>
+
+        {/* Creature Behavior Controls */}
+        <div className="control-group">
+          <label>
+            Speaking Probability: {(speakingProbability * 100).toFixed(1)}%
+          </label>
+          <input
+            type="range"
+            min="0"
+            max="0.2"
+            step="0.001"
+            value={speakingProbability}
+            onChange={(e) =>
+              handleSpeakingProbabilityChange(Number(e.target.value))
+            }
+          />
+        </div>
+
+        <div className="control-group">
+          <label>
+            Conversation Cooldown: {conversationCooldown.toFixed(1)}s
+          </label>
+          <input
+            type="range"
+            min="5"
+            max="30"
+            step="0.5"
+            value={conversationCooldown}
+            onChange={(e) =>
+              handleConversationCooldownChange(Number(e.target.value))
+            }
+          />
+        </div>
+
+        <div className="control-group">
+          <label>
+            Response Probability: {(responseProbability * 100).toFixed(1)}%
+          </label>
+          <input
+            type="range"
+            min="0"
+            max="0.8"
+            step="0.01"
+            value={responseProbability}
+            onChange={(e) =>
+              handleResponseProbabilityChange(Number(e.target.value))
+            }
+          />
+        </div>
+
+        <div className="control-group">
+          <label>Min Note Duration: {minNoteDuration.toFixed(1)}s</label>
+          <input
+            type="range"
+            min="0.5"
+            max="3"
+            step="0.1"
+            value={minNoteDuration}
+            onChange={(e) =>
+              handleMinNoteDurationChange(Number(e.target.value))
+            }
+          />
+        </div>
+
+        <div className="control-group">
+          <label>Max Note Duration: {maxNoteDuration.toFixed(1)}s</label>
+          <input
+            type="range"
+            min="3"
+            max="10"
+            step="0.1"
+            value={maxNoteDuration}
+            onChange={(e) =>
+              handleMaxNoteDurationChange(Number(e.target.value))
+            }
+          />
+        </div>
+
+        <div className="control-group">
+          <label>Note Amplitude: {(noteAmplitude * 100).toFixed(1)}%</label>
+          <input
+            type="range"
+            min="0"
+            max="0.2"
+            step="0.001"
+            value={noteAmplitude}
+            onChange={(e) => handleNoteAmplitudeChange(Number(e.target.value))}
+          />
+        </div>
+
+        <div className="control-group">
+          <label>Octave Variation: ±{octaveVariation.toFixed(2)}</label>
+          <input
+            type="range"
+            min="0"
+            max="0.5"
+            step="0.01"
+            value={octaveVariation}
+            onChange={(e) =>
+              handleOctaveVariationChange(Number(e.target.value))
+            }
+          />
+        </div>
+
+        <div className="control-group">
+          <label>
+            Microtonal Variation: ±{microtonalVariation.toFixed(0)} cents
+          </label>
+          <input
+            type="range"
+            min="0"
+            max="50"
+            step="1"
+            value={microtonalVariation}
+            onChange={(e) =>
+              handleMicrotonalVariationChange(Number(e.target.value))
+            }
+          />
+        </div>
+
+        {/* Audio Effects Controls */}
+        <div className="control-group">
+          <label>Delay Time: {(delayTime * 1000).toFixed(0)}ms</label>
+          <input
+            type="range"
+            min="0.01"
+            max="4.0"
+            step="0.01"
+            value={delayTime}
+            onChange={(e) => handleDelayTimeChange(Number(e.target.value))}
+          />
+        </div>
+
+        <div className="control-group">
+          <label>Delay Feedback: {(delayFeedback * 100).toFixed(0)}%</label>
+          <input
+            type="range"
+            min="0"
+            max="0.95"
+            step="0.01"
+            value={delayFeedback}
+            onChange={(e) => handleDelayFeedbackChange(Number(e.target.value))}
+          />
+        </div>
+
+        <div className="control-group">
+          <label>Delay Mix: {(delayMix * 100).toFixed(0)}%</label>
+          <input
+            type="range"
+            min="0"
+            max="1.0"
+            step="0.01"
+            value={delayMix}
+            onChange={(e) => handleDelayMixChange(Number(e.target.value))}
+          />
+        </div>
+
+        <div className="control-group">
+          <label>Reverb Decay: {(reverbDecay * 100).toFixed(0)}%</label>
+          <input
+            type="range"
+            min="0.1"
+            max="0.99"
+            step="0.01"
+            value={reverbDecay}
+            onChange={(e) => handleReverbDecayChange(Number(e.target.value))}
+          />
+        </div>
+
+        <div className="control-group">
+          <label>Reverb Mix: {(reverbMix * 100).toFixed(0)}%</label>
+          <input
+            type="range"
+            min="0"
+            max="1.0"
+            step="0.01"
+            value={reverbMix}
+            onChange={(e) => handleReverbMixChange(Number(e.target.value))}
+          />
+        </div>
       </div>
 
       {/* Action Buttons */}
@@ -278,8 +581,10 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         <button
           className="secondary-button"
           onClick={() => {
+            console.log("[BUTTON] Test Note button clicked");
             // Import and test a note
             import("../audio/creatures").then(({ creaturesService }) => {
+              console.log("[BUTTON] Calling creaturesService.testNote()");
               creaturesService.testNote();
             });
           }}
