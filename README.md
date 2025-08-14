@@ -119,14 +119,121 @@ Movement System    ──postMessage──>  Canvas Renderer
 - **Start/Stop**: Audio context management with user gesture compliance
 - **Visual Feedback**: Live creature status, energy levels, and social connections
 
-### 👁️ **Visualization Elements**
-- **Creature Circles**: Size reflects social status, color shows energy/timbre
-- **Pulsing Effects**: Visual envelope matching exact audio note durations  
-- **Social Connections**: Lines between creatures show relationship strength
-- **Movement Trails**: Dynamic positioning based on social attraction/repulsion
-- **Environment Bars**: Real-time parameter visualization (light, wind, humidity, temp)
-- **Beat Pulse**: Global rhythm coherence visualization
-- **Status Borders**: Gold borders for high-status, red for low-status creatures
+### 👁️ **Complete Visual System Guide**
+
+The visualization system provides real-time insight into the complex social and musical dynamics of the creature ecosystem. Every visual element has meaning and corresponds to underlying behavioral systems.
+
+#### **🎨 Creature Representation**
+- **Circle Size**: Dynamic sizing based on both intrinsic agent size (0-1) and social status
+  - Base radius: 5-20 pixels depending on agent's natural size
+  - Status modifier: High-status creatures appear 60% larger, low-status 30% smaller
+  - Creates natural visual hierarchy reflecting social dominance
+
+- **Color System**: Multi-layered HSL color encoding
+  - **Hue**: Base energy level (0-360°) - red = low energy, green = medium, blue = high
+  - **Playing State**: When making sounds, hue shifts to represent musical note (timbre 0-1 → 0-360°)
+  - **Saturation**: 50-100% based on musical timbre - more colorful = more harmonic content
+  - **Lightness**: 40-70% based on energy level - brighter = more energetic
+
+- **Border Effects**: Social status indicators
+  - **High Status** (>0.6): Gold borders (45° hue) with thick lines (up to 3px)
+  - **Low Status** (<0.4): Red borders (0° hue) with thin lines (1px)
+  - **Alpha**: Border opacity reflects status strength (0.6 + status × 0.4)
+
+#### **🔊 Audio-Visual Synchronization**
+- **Envelope-Matched Pulses**: Visual effects precisely sync with audio ADSR envelopes
+  - **Attack Phase** (5% of note): Rapid visual brightness increase
+  - **Decay Phase** (15% of note): Fall to 70% sustain level  
+  - **Sustain Phase** (70% of note): Stable visual intensity
+  - **Release Phase** (10% of note): Smooth fade to silence
+  - Creates perfect audio-visual correspondence
+
+- **Ripple Effects**: Concentric rings emanating from playing creatures
+  - **3 Ripple Layers**: Each with decreasing alpha and increasing radius
+  - **Envelope Scaling**: Ripple size and intensity based on note envelope
+  - **Color Matching**: Ripples use same hue as creature's current musical note
+
+- **Glow Effects**: Dynamic shadow/glow around playing creatures
+  - **Shadow Color**: Matches current musical hue at 100% saturation
+  - **Blur Radius**: 0-40px based on envelope intensity
+  - **Duration**: Active only during actual note playback
+
+#### **🤝 Social Dynamics Visualization**
+- **Connection Lines**: Real-time social relationship indicators
+  - **Green Lines**: Positive social interactions (mutual benefit)
+  - **Red Lines**: Negative interactions (competition/repulsion)
+  - **Line Width**: Relationship strength (1-4px)
+  - **Alpha**: Interaction frequency and recent activity
+  - **Distance Threshold**: Only shown for nearby creatures (within social range)
+
+- **Movement Patterns**: Physics-based social positioning
+  - **Attraction Forces**: High-status creatures draw others toward them
+  - **Repulsion Forces**: Overcrowding and low-status avoidance
+  - **Centering Force**: Prevents ecosystem drift beyond viewing area
+  - **Random Walk**: Small-scale exploration and natural variation
+  - **Velocity Visualization**: Trailing effects show movement direction
+
+#### **🌍 Resource & Territory System**
+- **Resource Zones**: Colored arcs around the territorial circle
+  - **Color Coding**: Red (scarce) → Yellow (moderate) → Green (abundant)
+  - **24 Zones**: Complete 360° resource map sampled at 15° intervals
+  - **Alpha Variation**: 0.3-0.7 transparency based on abundance level
+  - **Sinusoidal Distribution**: Resources follow mathematical abundance curve
+
+- **Territory Indicators**: Individual agent resource-seeking positions
+  - **Blue Dots**: Normal territory markers showing where each agent is "looking"
+  - **Brightness**: Reflects foraging efficiency (30-80% lightness)
+  - **Position**: Agent's current territoryPhase around the resource circle
+  - **Updates**: Continuously moves as agents explore their territory
+
+- **Foraging Status**: Active resource gathering visualization
+  - **Pulsing Green Circles**: Active foragers get animated 3-7px green indicators
+  - **Orbital Particles**: 3 rotating particles around foraging creatures
+  - **Pulse Timing**: Synchronized with real-time timestamp for natural rhythm
+  - **Efficiency Indicators**: Small colored dots showing foraging skill level
+
+#### **🔄 Environmental Representation**
+- **Parameter Bars**: Real-time environmental state (top-left corner)
+  - **Light**: Yellow bar (affects day/night musical modes)
+  - **Wind**: Blue bar (atmospheric variation)
+  - **Humidity**: Green bar (moisture levels)
+  - **Temperature**: Orange bar (thermal variation)
+  - **Update Frequency**: Every 200ms with smooth LFO + random walk evolution
+
+- **Beat Pulse Background**: Global rhythm synchronization
+  - **Ring Pulse**: Subtle expanding ring at canvas center
+  - **Coherence-Based**: Alpha = 0.3 × phase coherence level
+  - **Color**: Light blue (200° hue) for calming background effect
+  - **Radius**: Proportional to global beat phase state
+
+#### **⚡ Real-Time Status Effects**
+- **Foraging Animations**: Multi-layered effects for resource gathering
+  - **Primary Glow**: Pulsing green outline (120° hue) around foraging creatures
+  - **Particle System**: 3 orbiting resource particles with physics-based rotation
+  - **Pulse Intensity**: 0.5 + 0.5 × sin(time) for natural breathing effect
+  - **Layered Alpha**: Multiple transparency levels for depth
+
+- **Social Energy Visualization**: Behavioral state indicators
+  - **Speaking Energy**: Affects creature brightness and activity level
+  - **Energy Depletion**: Dimmer creatures indicate low energy reserves
+  - **Recharge Cycles**: Gradual brightness recovery during rest periods
+  - **Status Decay**: Visual indication of social standing changes
+
+#### **🎵 Musical Learning Indicators**
+- **Timbre Representation**: Current musical content visualization
+  - **Hue Mapping**: Last played note degree (0-11) mapped to color wheel
+  - **Scale Learning**: Visual indication of harmonic preference development
+  - **Innovation Events**: Color shifts during musical exploration (1% chance)
+  - **Memory Visualization**: Recent note history affects color stability
+
+#### **🔍 Debug & Analysis Features**
+- **Phase Coherence Display**: Kuramoto model synchronization level
+- **Global Beat Tracking**: Collective rhythm state in degrees  
+- **Agent ID Labels**: Numeric identifiers for behavior tracking
+- **Performance Monitoring**: Frame rate and update frequency display
+- **Interaction Logging**: Console output for social events and musical decisions
+
+The entire visualization system updates at 60fps with smooth interpolation, providing real-time insight into one of the most complex artificial life systems ever implemented in a web browser. Every pixel has meaning, every color represents data, and every movement reflects the underlying social and musical intelligence of the creature ecosystem.
 
 ### 🔬 **Debug Information**
 - **Phase Coherence**: Kuramoto model synchronization level (0-1)

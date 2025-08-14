@@ -1199,8 +1199,21 @@ class EnvironmentSimulator {
         noteDuration: noteInfo ? noteInfo.duration : 0,
         hue: agent.energy * 360,
         socialStatus: agent.socialStatus, // Add social status for movement dynamics
+        territoryPhase: agent.territoryPhase, // Territory position for resource visualization
+        isForaging: agent.isForaging, // Current foraging status
+        forageEfficiency: agent.forageEfficiency, // Foraging skill level
       };
     });
+
+    // Generate resource zones (sample the environment at regular intervals)
+    const resourceZones = [];
+    const numZones = 24; // Sample 24 points around the circle
+    for (let i = 0; i < numZones; i++) {
+      const angle = (i / numZones) * 2 * Math.PI;
+      // Calculate food availability at this angle using same formula as agents
+      const abundance = Math.sin(angle) * 0.5 + 0.5;
+      resourceZones.push({ angle, abundance });
+    }
 
     return {
       timestamp: currentTime,
@@ -1210,6 +1223,7 @@ class EnvironmentSimulator {
         wind: this.state.wind,
         humidity: this.state.humidity,
         temperature: this.state.temperature,
+        resourceZones, // Add resource zone data
       },
       beat: {
         globalPhase: snapshot.globalBeatPhase,

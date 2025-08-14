@@ -32,12 +32,12 @@ export const Visualiser: React.FC<VisualiserProps> = ({
 
   // Movement parameters
   const movementParams = {
-    maxSpeed: 0.0002, // Maximum movement speed per frame
-    socialAttraction: 0.000005, // Attraction strength to high-status agents
-    socialRepulsion: 0.000008, // Repulsion strength from low-status agents
-    centeringForce: 0.000003, // Force pulling agents toward center
-    randomWalk: 0.000001, // Random movement strength
-    dampening: 0.98, // Velocity dampening
+    maxSpeed: 0.02, // Maximum movement speed per frame (100x increase)
+    socialAttraction: 0.0005, // Attraction strength to high-status agents (100x increase)
+    socialRepulsion: 0.0008, // Repulsion strength from low-status agents (100x increase)
+    centeringForce: 0.0003, // Force pulling agents toward center (100x increase)
+    randomWalk: 0.0001, // Random movement strength (100x increase)
+    dampening: 0.95, // Velocity dampening (slightly less dampening for more movement)
     minDistance: 0.05, // Minimum distance between agents
     maxDistance: 0.4, // Maximum distance for social forces
   };
@@ -58,13 +58,17 @@ export const Visualiser: React.FC<VisualiserProps> = ({
 
     agentData.current = Array.from({ length: numAgents }, (_, i) => {
       const angle = (i / numAgents) * 2 * Math.PI;
+      // Add some random variation to initial positions
+      const radiusVariation = radius + (Math.random() - 0.5) * 0.1;
+      const angleVariation = angle + (Math.random() - 0.5) * 0.2;
+
       return {
-        x: centerX + Math.cos(angle) * radius,
-        y: centerY + Math.sin(angle) * radius,
-        vx: 0,
-        vy: 0,
-        socialStatus: 0.5, // Initialize with neutral status
-        energy: 0.5, // Initialize with neutral energy
+        x: centerX + Math.cos(angleVariation) * radiusVariation,
+        y: centerY + Math.sin(angleVariation) * radiusVariation,
+        vx: (Math.random() - 0.5) * 0.01, // Initial random velocity
+        vy: (Math.random() - 0.5) * 0.01, // Initial random velocity
+        socialStatus: 0.3 + Math.random() * 0.4, // Random initial status like in worker
+        energy: 0.3 + Math.random() * 0.4, // Random initial energy
       };
     });
   }, []);
@@ -117,10 +121,16 @@ export const Visualiser: React.FC<VisualiserProps> = ({
     // 2. Render environment bars
     renderEnvironmentBars(ctx, snapshot.environment);
 
-    // 3. Render social connections
+    // 3. Render resource zones
+    renderResourceZones(ctx, snapshot.environment);
+
+    // 4. Render social connections
     renderSocialConnections(ctx, snapshot.agents);
 
-    // 4. Render agents
+    // 5. Render territory indicators
+    renderTerritoryIndicators(ctx, snapshot.agents);
+
+    // 6. Render agents
     renderAgents(ctx, snapshot.agents, snapshot, timestamp);
 
     ctx.restore();
@@ -187,6 +197,88 @@ export const Visualiser: React.FC<VisualiserProps> = ({
     });
   };
 
+  // Render resource zones around the territory circle
+  const renderResourceZones = (
+    ctx: CanvasRenderingContext2D,
+    env: SimulationSnapshot["environment"]
+  ) => {
+    if (!env?.resourceZones) return;
+
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const outerRadius = Math.min(width, height) * 0.45; // Just outside agent circle
+    const innerRadius = Math.min(width, height) * 0.35; // Just inside agent circle
+
+    // Draw resource abundance as colored arcs
+    env.resourceZones.forEach((zone) => {
+      const nextZone =
+        env.resourceZones[env.resourceZones.indexOf(zone) + 1] ||
+        env.resourceZones[0];
+      const startAngle = zone.angle - Math.PI / 2; // Adjust for canvas coordinates
+      const endAngle = nextZone.angle - Math.PI / 2;
+
+      // Color based on abundance: red = low, yellow = medium, green = high
+      const hue = zone.abundance * 120; // 0 = red, 120 = green
+      const alpha = 0.3 + zone.abundance * 0.4; // More transparent when low abundance
+
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = `hsl(${hue}, 70%, 50%)`;
+      ctx.lineWidth = 8;
+      ctx.beginPath();
+      ctx.arc(
+        centerX,
+        centerY,
+        (innerRadius + outerRadius) / 2,
+        startAngle,
+        endAngle
+      );
+      ctx.stroke();
+      ctx.restore();
+    });
+  };
+
+  // Render territory indicators for each agent
+  const renderTerritoryIndicators = (
+    ctx: CanvasRenderingContext2D,
+    agents: SimulationSnapshot["agents"]
+  ) => {
+    if (!agents) return;
+
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const territoryRadius = Math.min(width, height) * 0.4;
+
+    agents.forEach((agent) => {
+      const angle = agent.territoryPhase - Math.PI / 2; // Adjust for canvas coordinates
+      const x = centerX + Math.cos(angle) * territoryRadius;
+      const y = centerY + Math.sin(angle) * territoryRadius;
+
+      // Draw territory indicator
+      ctx.save();
+
+      if (agent.isForaging) {
+        // Foraging indicator - pulsing circle
+        const pulseSize = 3 + Math.sin(Date.now() * 0.01) * 2;
+        ctx.fillStyle = `hsl(120, 80%, 60%)`; // Green for active foraging
+        ctx.globalAlpha = 0.8;
+        ctx.beginPath();
+        ctx.arc(x, y, pulseSize, 0, 2 * Math.PI);
+        ctx.fill();
+      } else {
+        // Regular territory marker
+        const brightness = 30 + agent.forageEfficiency * 50; // Brighter = more efficient
+        ctx.fillStyle = `hsl(200, 60%, ${brightness}%)`; // Blue territory marker
+        ctx.globalAlpha = 0.6;
+        ctx.beginPath();
+        ctx.arc(x, y, 2, 0, 2 * Math.PI);
+        ctx.fill();
+      }
+
+      ctx.restore();
+    });
+  };
+
   // Update agent positions based on social dynamics
   const updateAgentMovement = (agents: SimulationSnapshot["agents"]) => {
     if (!agents || agentData.current.length === 0) return;
@@ -198,6 +290,15 @@ export const Visualiser: React.FC<VisualiserProps> = ({
         agentData.current[i].energy = agent.energy;
       }
     });
+
+    // Debug: log social status occasionally
+    if (Math.random() < 0.001) {
+      // ~1 in 1000 frames
+      console.log(
+        "[MOVEMENT] Social status:",
+        agentData.current.slice(0, 3).map((a) => a.socialStatus.toFixed(2))
+      );
+    }
 
     // Calculate forces for each agent
     agentData.current.forEach((currentAgent, i) => {
@@ -494,6 +595,52 @@ export const Visualiser: React.FC<VisualiserProps> = ({
         ctx.strokeStyle = `hsla(${hue}, 80%, 60%, 0.6)`;
         ctx.lineWidth = 3;
         ctx.stroke();
+      }
+
+      // Foraging effects
+      if (agent.isForaging) {
+        // Foraging pulse - green glow effect
+        const foragePulse = 0.5 + 0.5 * Math.sin(timestamp * 0.01); // Gentle pulsing
+        const forageRadius = radius + 5 + foragePulse * 8;
+
+        ctx.save();
+        ctx.globalAlpha = 0.4 + foragePulse * 0.3;
+        ctx.strokeStyle = `hsl(120, 80%, 60%)`; // Green foraging indicator
+        ctx.lineWidth = 2 + foragePulse * 2;
+        ctx.beginPath();
+        ctx.arc(x, y, forageRadius, 0, 2 * Math.PI);
+        ctx.stroke();
+
+        // Add small particles around foraging agents
+        for (let i = 0; i < 3; i++) {
+          const particleAngle = (timestamp * 0.002 + i * 2.1) % (2 * Math.PI);
+          const particleRadius =
+            radius + 15 + Math.sin(timestamp * 0.01 + i) * 5;
+          const px = x + Math.cos(particleAngle) * particleRadius;
+          const py = y + Math.sin(particleAngle) * particleRadius;
+
+          ctx.fillStyle = `hsla(120, 70%, 70%, ${0.3 + foragePulse * 0.4})`;
+          ctx.beginPath();
+          ctx.arc(px, py, 1 + foragePulse, 0, 2 * Math.PI);
+          ctx.fill();
+        }
+
+        ctx.restore();
+      }
+
+      // Show foraging efficiency as a small indicator
+      if (agent.forageEfficiency !== undefined) {
+        const efficiencySize = 2 + agent.forageEfficiency * 4;
+        const efficiencyX = x + radius + 8;
+        const efficiencyY = y - radius - 5;
+
+        ctx.save();
+        ctx.fillStyle = `hsl(${60 + agent.forageEfficiency * 60}, 70%, 60%)`; // Yellow to green
+        ctx.globalAlpha = 0.7;
+        ctx.beginPath();
+        ctx.arc(efficiencyX, efficiencyY, efficiencySize, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.restore();
       }
 
       // Draw main agent circle

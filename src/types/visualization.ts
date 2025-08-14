@@ -15,6 +15,9 @@ export interface AgentVisualization {
   noteDuration: number; // Duration of the current note in seconds
   hue: number; // Color hue 0-360 degrees
   socialStatus: number; // Social status 0-1 for movement dynamics
+  territoryPhase: number; // Territory position 0-2π
+  isForaging: boolean; // Currently foraging for resources
+  forageEfficiency: number; // Foraging skill 0-1
 }
 
 export interface EnvironmentVisualization {
@@ -22,6 +25,10 @@ export interface EnvironmentVisualization {
   wind: number; // 0-1
   humidity: number; // 0-1
   temperature: number; // 0-1
+  resourceZones: Array<{
+    angle: number; // Position around circle 0-2π
+    abundance: number; // Resource availability 0-1
+  }>; // Resource availability around the territory circle
 }
 
 export interface BeatVisualization {
