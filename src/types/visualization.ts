@@ -14,6 +14,7 @@ export interface AgentVisualization {
   noteStartTime: number; // When the current note started (audio time)
   noteDuration: number; // Duration of the current note in seconds
   hue: number; // Color hue 0-360 degrees
+  socialStatus: number; // Social status 0-1 for movement dynamics
 }
 
 export interface EnvironmentVisualization {

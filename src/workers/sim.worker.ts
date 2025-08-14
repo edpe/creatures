@@ -1198,6 +1198,7 @@ class EnvironmentSimulator {
         noteStartTime: noteInfo ? noteInfo.startTime : 0,
         noteDuration: noteInfo ? noteInfo.duration : 0,
         hue: agent.energy * 360,
+        socialStatus: agent.socialStatus, // Add social status for movement dynamics
       };
     });
 

@@ -18,8 +18,29 @@ export const Visualiser: React.FC<VisualiserProps> = ({
   const animationRef = useRef<number>();
   const [snapshot, setSnapshot] = useState<SimulationSnapshot | null>(null);
 
-  // Pre-computed positions for agents (avoid allocations in render loop)
-  const agentPositions = useRef<Array<{ x: number; y: number }>>([]);
+  // Dynamic agent positions and velocities
+  const agentData = useRef<
+    Array<{
+      x: number;
+      y: number;
+      vx: number;
+      vy: number;
+      socialStatus: number;
+      energy: number;
+    }>
+  >([]);
+
+  // Movement parameters
+  const movementParams = {
+    maxSpeed: 0.0002, // Maximum movement speed per frame
+    socialAttraction: 0.000005, // Attraction strength to high-status agents
+    socialRepulsion: 0.000008, // Repulsion strength from low-status agents
+    centeringForce: 0.000003, // Force pulling agents toward center
+    randomWalk: 0.000001, // Random movement strength
+    dampening: 0.98, // Velocity dampening
+    minDistance: 0.05, // Minimum distance between agents
+    maxDistance: 0.4, // Maximum distance for social forces
+  };
 
   // Update snapshot when prop changes
   useEffect(() => {
@@ -28,18 +49,22 @@ export const Visualiser: React.FC<VisualiserProps> = ({
     }
   }, [propSnapshot]);
 
-  // Initialize agent positions in a circle layout
+  // Initialize agent positions in a circle layout with movement capabilities
   useEffect(() => {
     const numAgents = 16;
     const centerX = 0.5;
     const centerY = 0.5;
     const radius = 0.3;
 
-    agentPositions.current = Array.from({ length: numAgents }, (_, i) => {
+    agentData.current = Array.from({ length: numAgents }, (_, i) => {
       const angle = (i / numAgents) * 2 * Math.PI;
       return {
         x: centerX + Math.cos(angle) * radius,
         y: centerY + Math.sin(angle) * radius,
+        vx: 0,
+        vy: 0,
+        socialStatus: 0.5, // Initialize with neutral status
+        energy: 0.5, // Initialize with neutral energy
       };
     });
   }, []);
@@ -83,13 +108,19 @@ export const Visualiser: React.FC<VisualiserProps> = ({
     // Performance: avoid allocations in render loop
     ctx.save();
 
+    // 0. Update agent movement based on social dynamics
+    updateAgentMovement(snapshot.agents);
+
     // 1. Render beat pulse background
     renderBeatPulse(ctx, snapshot.beat, timestamp);
 
     // 2. Render environment bars
     renderEnvironmentBars(ctx, snapshot.environment);
 
-    // 3. Render agents
+    // 3. Render social connections
+    renderSocialConnections(ctx, snapshot.agents);
+
+    // 4. Render agents
     renderAgents(ctx, snapshot.agents, snapshot, timestamp);
 
     ctx.restore();
@@ -156,6 +187,147 @@ export const Visualiser: React.FC<VisualiserProps> = ({
     });
   };
 
+  // Update agent positions based on social dynamics
+  const updateAgentMovement = (agents: SimulationSnapshot["agents"]) => {
+    if (!agents || agentData.current.length === 0) return;
+
+    // Update agent data from simulation
+    agents.forEach((agent, i) => {
+      if (agentData.current[i]) {
+        agentData.current[i].socialStatus = agent.socialStatus;
+        agentData.current[i].energy = agent.energy;
+      }
+    });
+
+    // Calculate forces for each agent
+    agentData.current.forEach((currentAgent, i) => {
+      let fx = 0,
+        fy = 0;
+
+      // Social forces from other agents
+      agentData.current.forEach((otherAgent, j) => {
+        if (i === j) return;
+
+        const dx = otherAgent.x - currentAgent.x;
+        const dy = otherAgent.y - currentAgent.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance > 0 && distance < movementParams.maxDistance) {
+          const normalizedDx = dx / distance;
+          const normalizedDy = dy / distance;
+
+          // Social status difference determines attraction/repulsion
+          const statusDiff =
+            otherAgent.socialStatus - currentAgent.socialStatus;
+
+          if (distance < movementParams.minDistance) {
+            // Too close - always repel
+            const repelForce =
+              movementParams.socialRepulsion / (distance * distance);
+            fx -= normalizedDx * repelForce;
+            fy -= normalizedDy * repelForce;
+          } else if (statusDiff > 0.1) {
+            // Other agent has higher status - attraction
+            const attractForce = movementParams.socialAttraction * statusDiff;
+            fx += normalizedDx * attractForce;
+            fy += normalizedDy * attractForce;
+          } else if (statusDiff < -0.1) {
+            // Other agent has lower status - slight repulsion
+            const repelForce =
+              movementParams.socialRepulsion * Math.abs(statusDiff) * 0.5;
+            fx -= normalizedDx * repelForce;
+            fy -= normalizedDy * repelForce;
+          }
+        }
+      });
+
+      // Centering force (keep agents from drifting too far)
+      const centerDx = 0.5 - currentAgent.x;
+      const centerDy = 0.5 - currentAgent.y;
+      const centerDistance = Math.sqrt(
+        centerDx * centerDx + centerDy * centerDy
+      );
+      if (centerDistance > 0.3) {
+        fx += centerDx * movementParams.centeringForce;
+        fy += centerDy * movementParams.centeringForce;
+      }
+
+      // Random walk
+      fx += (Math.random() - 0.5) * movementParams.randomWalk;
+      fy += (Math.random() - 0.5) * movementParams.randomWalk;
+
+      // Update velocity
+      currentAgent.vx += fx;
+      currentAgent.vy += fy;
+
+      // Apply dampening
+      currentAgent.vx *= movementParams.dampening;
+      currentAgent.vy *= movementParams.dampening;
+
+      // Limit maximum speed
+      const speed = Math.sqrt(
+        currentAgent.vx * currentAgent.vx + currentAgent.vy * currentAgent.vy
+      );
+      if (speed > movementParams.maxSpeed) {
+        currentAgent.vx = (currentAgent.vx / speed) * movementParams.maxSpeed;
+        currentAgent.vy = (currentAgent.vy / speed) * movementParams.maxSpeed;
+      }
+
+      // Update position
+      currentAgent.x += currentAgent.vx;
+      currentAgent.y += currentAgent.vy;
+
+      // Keep agents within bounds
+      currentAgent.x = Math.max(0.1, Math.min(0.9, currentAgent.x));
+      currentAgent.y = Math.max(0.1, Math.min(0.9, currentAgent.y));
+    });
+  };
+
+  const renderSocialConnections = (
+    ctx: CanvasRenderingContext2D,
+    agents: SimulationSnapshot["agents"]
+  ) => {
+    if (!agents || agentData.current.length === 0) return;
+
+    agents.forEach((agent, i) => {
+      const agentPos = agentData.current[i];
+      if (!agentPos) return;
+
+      agents.forEach((otherAgent, j) => {
+        if (i >= j) return; // Only draw each connection once
+
+        const otherPos = agentData.current[j];
+        if (!otherPos) return;
+
+        const dx = otherPos.x - agentPos.x;
+        const dy = otherPos.y - agentPos.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        // Only show connections for nearby agents
+        if (distance < 0.15) {
+          const statusDiff = agent.socialStatus - otherAgent.socialStatus;
+          let alpha = 0.1;
+          let color = "#888";
+
+          // Visual connection strength based on social dynamics
+          if (Math.abs(statusDiff) > 0.2) {
+            alpha = 0.3;
+            color = statusDiff > 0 ? "#4CAF50" : "#FF5722"; // Green for higher status, red for lower
+          }
+
+          ctx.beginPath();
+          ctx.moveTo(agentPos.x * width, agentPos.y * height);
+          ctx.lineTo(otherPos.x * width, otherPos.y * height);
+          ctx.strokeStyle = `hsla(${
+            color === "#4CAF50" ? 120 : color === "#FF5722" ? 10 : 0
+          }, 70%, 50%, ${alpha})`;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+      });
+    });
+  };
+
   const renderAgents = (
     ctx: CanvasRenderingContext2D,
     agents: SimulationSnapshot["agents"],
@@ -165,12 +337,15 @@ export const Visualiser: React.FC<VisualiserProps> = ({
     if (!agents) return;
 
     agents.forEach((agent, i) => {
-      const pos = agentPositions.current[i];
-      if (!pos) return;
+      const agentPos = agentData.current[i];
+      if (!agentPos) return;
 
-      const x = pos.x * width;
-      const y = pos.y * height;
+      const x = agentPos.x * width;
+      const y = agentPos.y * height;
       let radius = 5 + agent.size * 15; // Base radius: 5-20px
+
+      // Modify radius based on social status
+      radius *= 0.7 + agent.socialStatus * 0.6; // High status = larger, low status = smaller
 
       // Color based on energy/timbre and musical note
       let hue = agent.energy * 360; // Base hue from energy
@@ -327,14 +502,20 @@ export const Visualiser: React.FC<VisualiserProps> = ({
       ctx.fillStyle = `hsla(${hue}, ${saturation}%, ${lightness}%, ${alpha})`;
       ctx.fill();
 
-      // Add a subtle border for better definition
+      // Add a border that reflects social status
       ctx.beginPath();
       ctx.arc(x, y, pulseRadius, 0, 2 * Math.PI);
-      ctx.strokeStyle = `hsla(${hue}, ${saturation}%, ${Math.min(
+
+      // Border style based on social status
+      const statusHue =
+        agent.socialStatus > 0.6 ? 45 : agent.socialStatus < 0.4 ? 0 : hue; // Gold for high status, red for low status
+      const borderWidth = 1 + agent.socialStatus * 2; // Thicker border for higher status
+
+      ctx.strokeStyle = `hsla(${statusHue}, ${saturation}%, ${Math.min(
         lightness + 20,
         100
-      )}%, 0.6)`;
-      ctx.lineWidth = 1;
+      )}%, ${0.6 + agent.socialStatus * 0.4})`;
+      ctx.lineWidth = borderWidth;
       ctx.stroke();
 
       // Agent ID label with better contrast
