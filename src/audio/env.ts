@@ -46,10 +46,12 @@ interface WorkerMessage {
     | "phase"
     | "notes"
     | "requestAudioTime"
-    | "audioTime";
+    | "audioTime"
+    | "visualization";
   data?: Omit<EnvironmentParameters, "masterGain"> | PhaseSnapshot | NoteBatch;
   notes?: NoteEvent[]; // Add notes field to match worker interface
   audioTime?: number; // For audioTime messages
+  visualization?: import("../types/visualization").SimulationSnapshot; // For visualization messages
 }
 
 class EnvironmentService {
@@ -70,6 +72,11 @@ class EnvironmentService {
   // Event listeners for parameter updates
   private updateListeners: ((
     params: Omit<EnvironmentParameters, "masterGain">
+  ) => void)[] = [];
+
+  // Event listeners for visualization updates
+  private visualizationListeners: ((
+    snapshot: import("../types/visualization").SimulationSnapshot
   ) => void)[] = [];
 
   // Phase snapshot storage
@@ -161,6 +168,9 @@ class EnvironmentService {
         events: message.notes,
       };
       this.forwardNotesToCreatures(noteBatch);
+    } else if (message.type === "visualization" && message.visualization) {
+      // Visualization snapshot from worker
+      this.notifyVisualizationListeners(message.visualization);
     } else if (message.type === "requestAudioTime") {
       // Worker is requesting current audio context time
       if (this.audioContext) {
@@ -368,6 +378,40 @@ class EnvironmentService {
     if (index > -1) {
       this.updateListeners.splice(index, 1);
     }
+  }
+
+  /**
+   * Add listener for visualization updates from simulation worker
+   */
+  addVisualizationListener(
+    listener: (
+      snapshot: import("../types/visualization").SimulationSnapshot
+    ) => void
+  ): void {
+    this.visualizationListeners.push(listener);
+  }
+
+  /**
+   * Remove listener for visualization updates
+   */
+  removeVisualizationListener(
+    listener: (
+      snapshot: import("../types/visualization").SimulationSnapshot
+    ) => void
+  ): void {
+    const index = this.visualizationListeners.indexOf(listener);
+    if (index > -1) {
+      this.visualizationListeners.splice(index, 1);
+    }
+  }
+
+  /**
+   * Notify visualization listeners with new snapshot
+   */
+  private notifyVisualizationListeners(
+    snapshot: import("../types/visualization").SimulationSnapshot
+  ): void {
+    this.visualizationListeners.forEach((listener) => listener(snapshot));
   }
 
   /**

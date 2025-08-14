@@ -1,7 +1,9 @@
 import { useState, useCallback, useEffect } from "react";
 import { audioService } from "./audio/ctx";
 import { ControlPanel } from "./components/ControlPanel";
+import { Visualiser } from "./components/Visualiser";
 import type { EnvironmentParameters } from "./audio/env";
+import type { SimulationSnapshot } from "./types/visualization";
 import "./App.css";
 
 function App() {
@@ -12,6 +14,9 @@ function App() {
     temperature: 0.4,
     masterGain: 0.15,
   });
+
+  const [visualizationSnapshot, setVisualizationSnapshot] =
+    useState<SimulationSnapshot | null>(null);
 
   // Handle parameter changes from control panel
   const handleParameterChange = useCallback((param: string, value: number) => {
@@ -36,6 +41,23 @@ function App() {
     };
   }, []);
 
+  // Listen for visualization updates from worker
+  useEffect(() => {
+    const handleVisualizationUpdate = (snapshot: SimulationSnapshot) => {
+      setVisualizationSnapshot(snapshot);
+    };
+
+    audioService.environment.addVisualizationListener(
+      handleVisualizationUpdate
+    );
+
+    return () => {
+      audioService.environment.removeVisualizationListener(
+        handleVisualizationUpdate
+      );
+    };
+  }, []);
+
   return (
     <div className="app">
       <header className="app-header">
@@ -47,6 +69,12 @@ function App() {
 
       <main className="app-main">
         <ControlPanel onParameterChange={handleParameterChange} />
+
+        {/* Real-time simulation visualization */}
+        <div className="visualiser-container">
+          <h3>🎵 Simulation Visualization</h3>
+          <Visualiser snapshot={visualizationSnapshot} />
+        </div>
 
         {/* Environment visualization */}
         <div className="env-display">

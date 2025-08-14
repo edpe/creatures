@@ -77,13 +77,15 @@ interface WorkerMessage {
     | "phases"
     | "notes"
     | "setParameter"
-    | "requestAudioTime";
+    | "requestAudioTime"
+    | "visualization";
   phases?: PhaseSnapshot;
   notes?: NoteEvent[];
   environment?: EnvironmentState;
   audioTime?: number; // For audioTime messages
   parameterName?: string; // For setParameter messages
   parameterValue?: number; // For setParameter messages
+  visualization?: import("../types/visualization").SimulationSnapshot; // For visualization messages
 }
 
 /**
@@ -137,6 +139,7 @@ class PitchField {
     lightLevel: number, // Add light level for day/night pentatonic switching
     onSpeaking?: (
       speakerId: number,
+      note: NoteEvent,
       conversationHistory: Array<{ time: number; agentId: number }>
     ) => void
   ): NoteEvent[] {
@@ -166,7 +169,7 @@ class PitchField {
 
           // Call social benefits callback if provided (Step 5)
           if (onSpeaking) {
-            onSpeaking(agent.id, this.conversationHistory);
+            onSpeaking(agent.id, note, this.conversationHistory);
           }
         }
       }
@@ -549,6 +552,11 @@ class KuramotoSimulator {
   private coupling: number = 0.15; // Weak coupling strength
   private dt: number = 0.05; // 50ms time step
   private pitchField: PitchField = new PitchField();
+  private currentlyPlayingAgents = new Set<number>();
+  private currentNotes = new Map<
+    number,
+    { startTime: number; duration: number }
+  >();
 
   constructor() {
     this.initializeAgents();
@@ -607,6 +615,16 @@ class KuramotoSimulator {
     // Update energy management first (Step 4)
     this.updateEnergyManagement(currentTime);
 
+    // Clear previously playing agents (they only "play" for one cycle)
+    this.currentlyPlayingAgents.clear();
+
+    // Clean up old note information for agents that have finished playing
+    for (const [agentId, noteInfo] of this.currentNotes.entries()) {
+      if (currentTime > noteInfo.startTime + noteInfo.duration) {
+        this.currentNotes.delete(agentId);
+      }
+    }
+
     // Update phases using Kuramoto model
     this.updatePhases(); // Generate notes from agents that crossed beat boundaries
     const notes = this.pitchField.generateNotes(
@@ -616,8 +634,28 @@ class KuramotoSimulator {
       // Apply social benefits when agents speak (Step 5)
       (
         speakerId: number,
+        note: NoteEvent,
         conversationHistory: Array<{ time: number; agentId: number }>
       ) => {
+        // Track that this agent is currently playing
+        console.log(
+          `[SPEAKER] Agent ${speakerId} is speaking at time ${currentTime}, duration: ${note.dur.toFixed(
+            3
+          )}s`
+        );
+        this.currentlyPlayingAgents.add(speakerId);
+
+        // Store note information for visualization
+        this.currentNotes.set(speakerId, {
+          startTime: note.startTime,
+          duration: note.dur,
+        });
+        console.log(
+          `[NOTE-INFO] Stored for agent ${speakerId}: start=${note.startTime.toFixed(
+            3
+          )}, dur=${note.dur.toFixed(3)}`
+        );
+
         this.applySocialBenefitsFromSpeaking(
           speakerId,
           conversationHistory,
@@ -893,6 +931,21 @@ class KuramotoSimulator {
     this.coupling = Math.max(0, Math.min(1, newCoupling));
     console.log(`Kuramoto coupling set to ${this.coupling.toFixed(3)}`);
   }
+
+  // Getter for agents (needed for visualization)
+  get agentsList(): KuramotoAgent[] {
+    return this.agents;
+  }
+
+  // Getter for currently playing agents (needed for visualization)
+  get currentlyPlaying(): Set<number> {
+    return this.currentlyPlayingAgents;
+  }
+
+  // Getter for current note information (needed for visualization)
+  get currentNoteInfo(): Map<number, { startTime: number; duration: number }> {
+    return this.currentNotes;
+  }
 }
 
 class EnvironmentSimulator {
@@ -901,6 +954,7 @@ class EnvironmentSimulator {
   private phaseIntervalId: number | null = null;
   private time = 0;
   private audioStartTime = 0;
+  private lastVisualizationTime = 0;
 
   // Kuramoto phase simulator
   private kuramotoSim = new KuramotoSimulator();
@@ -1052,6 +1106,20 @@ class EnvironmentSimulator {
       self.postMessage(notesMessage);
     }
 
+    // Post visualization data (at 30 FPS - every ~33ms)
+    if (currentAudioTime - this.lastVisualizationTime >= 0.033) {
+      this.lastVisualizationTime = currentAudioTime;
+      const vizSnapshot = this.generateVisualizationSnapshot(
+        currentAudioTime,
+        result.snapshot
+      );
+      const vizMessage: WorkerMessage = {
+        type: "visualization",
+        visualization: vizSnapshot,
+      };
+      self.postMessage(vizMessage);
+    }
+
     // Log synchrony info occasionally (every 2 seconds)
     if (Math.floor(currentAudioTime * 20) % 40 === 0) {
       this.logSynchronyInfo(result.snapshot);
@@ -1075,6 +1143,79 @@ class EnvironmentSimulator {
     console.log(
       `Kuramoto: coherence=${coherence.toFixed(3)}, globalPhase=${globalPhase}°`
     );
+  }
+
+  private generateVisualizationSnapshot(
+    currentTime: number,
+    snapshot: PhaseSnapshot
+  ): import("../types/visualization").SimulationSnapshot {
+    // Calculate global coherence
+    let sumSin = 0;
+    let sumCos = 0;
+    for (const agent of snapshot.agents) {
+      sumSin += Math.sin(agent.beatPhase);
+      sumCos += Math.cos(agent.beatPhase);
+    }
+    const coherence =
+      Math.sqrt(sumSin * sumSin + sumCos * sumCos) / snapshot.agents.length;
+
+    // Generate agent visualizations
+    const agentViz = this.kuramotoSim.agentsList.map((agent, i) => {
+      // Check if this agent is currently playing
+      const isPlaying = this.kuramotoSim.currentlyPlaying.has(agent.id);
+
+      // Get note information for this agent
+      const noteInfo = this.kuramotoSim.currentNoteInfo.get(agent.id);
+
+      if (noteInfo) {
+        console.log(
+          `[VIZ-GEN] Agent ${agent.id}: noteStart=${noteInfo.startTime.toFixed(
+            3
+          )}, noteDur=${noteInfo.duration.toFixed(
+            3
+          )}, currentTime=${currentTime.toFixed(3)}`
+        );
+      }
+
+      return {
+        id: agent.id,
+        x:
+          0.5 +
+          Math.cos((i / this.kuramotoSim.agentsList.length) * 2 * Math.PI) *
+            0.3,
+        y:
+          0.5 +
+          Math.sin((i / this.kuramotoSim.agentsList.length) * 2 * Math.PI) *
+            0.3,
+        size: agent.size,
+        energy: agent.energy,
+        timbre:
+          agent.recentNotes.length > 0
+            ? agent.recentNotes[agent.recentNotes.length - 1].degree / 12
+            : 0.5,
+        isPlaying,
+        playingUntil: isPlaying ? currentTime + 0.5 : 0, // Flash for 500ms (0.5 seconds)
+        noteStartTime: noteInfo ? noteInfo.startTime : 0,
+        noteDuration: noteInfo ? noteInfo.duration : 0,
+        hue: agent.energy * 360,
+      };
+    });
+
+    return {
+      timestamp: currentTime,
+      agents: agentViz,
+      environment: {
+        light: this.state.light,
+        wind: this.state.wind,
+        humidity: this.state.humidity,
+        temperature: this.state.temperature,
+      },
+      beat: {
+        globalPhase: snapshot.globalBeatPhase,
+        coherence,
+        intensity: coherence * (0.5 + Math.sin(snapshot.globalBeatPhase) * 0.5),
+      },
+    };
   }
 }
 
